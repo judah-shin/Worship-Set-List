@@ -2,7 +2,6 @@
   "name": "worship-set-list",
   "version": "1.0.0",
   "description": "예배 인도자용 악보 & Set List 관리 웹앱",
-  "type": "module",
   "scripts": {
     "dev": "vercel dev",
     "build": "echo 'Static build — no build step required'",
