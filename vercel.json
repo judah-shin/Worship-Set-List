@@ -1,19 +1,17 @@
 {
   "version": 2,
-  "buildCommand": null,
-  "outputDirectory": ".",
-  "routes": [
+  "rewrites": [
     {
-      "src": "/api/gas",
-      "dest": "/api/gas.js"
+      "source": "/api/gas",
+      "destination": "/api/gas.js"
     },
     {
-      "src": "/api/fetch-file",
-      "dest": "/api/fetch-file.js"
+      "source": "/api/fetch-file",
+      "destination": "/api/fetch-file.js"
     },
     {
-      "src": "/(.*)",
-      "dest": "/index.html"
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
     }
   ],
   "headers": [
