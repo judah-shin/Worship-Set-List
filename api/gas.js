@@ -3,7 +3,7 @@
 //  Code.gs → Node.js + Supabase 이식
 // ================================================================
 
-import { createClient } from '@supabase/supabase-js';
+const { createClient } = require('@supabase/supabase-js');
 
 // ── Supabase 클라이언트 ──────────────────────────────────────
 const supabase = createClient(
@@ -364,7 +364,7 @@ const handlers = {
 // ================================================================
 //  Vercel API Route 진입점
 // ================================================================
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   setCors(res);
 
   // CORS preflight
