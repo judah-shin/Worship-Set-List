@@ -1,37 +1,3 @@
 {
-  "version": 2,
-  "rewrites": [
-    {
-      "source": "/api/gas",
-      "destination": "/api/gas.js"
-    },
-    {
-      "source": "/api/fetch-file",
-      "destination": "/api/fetch-file.js"
-    },
-    {
-      "source": "/((?!api/).*)",
-      "destination": "/index.html"
-    }
-  ],
-  "headers": [
-    {
-      "source": "/api/(.*)",
-      "headers": [
-        { "key": "Access-Control-Allow-Origin",  "value": "*" },
-        { "key": "Access-Control-Allow-Methods", "value": "POST, OPTIONS" },
-        { "key": "Access-Control-Allow-Headers", "value": "Content-Type" }
-      ]
-    }
-  ],
-  "functions": {
-    "api/gas.js": {
-      "memory": 512,
-      "maxDuration": 10
-    },
-    "api/fetch-file.js": {
-      "memory": 1024,
-      "maxDuration": 10
-    }
-  }
+  "version": 2
 }
