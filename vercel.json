@@ -1,0 +1,39 @@
+{
+  "version": 2,
+  "buildCommand": null,
+  "outputDirectory": ".",
+  "routes": [
+    {
+      "src": "/api/gas",
+      "dest": "/api/gas.js"
+    },
+    {
+      "src": "/api/fetch-file",
+      "dest": "/api/fetch-file.js"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin",  "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "POST, OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type" }
+      ]
+    }
+  ],
+  "functions": {
+    "api/gas.js": {
+      "memory": 512,
+      "maxDuration": 10
+    },
+    "api/fetch-file.js": {
+      "memory": 1024,
+      "maxDuration": 10
+    }
+  }
+}
