@@ -319,20 +319,47 @@ async function fetchFileAsBase64(fileUrl) {
     }
 
     let url = fileUrl.trim();
+
+    // OneDrive URL 변환
     if (url.includes('1drv.ms') || url.includes('onedrive.live.com')) {
       url += (url.includes('?') ? '&' : '?') + 'download=1';
     }
 
+    // Google Drive URL 변환
+    let driveFileId = null;
+    const driveMatch1 = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+    if (driveMatch1) driveFileId = driveMatch1[1];
+    if (!driveFileId) {
+      const driveMatch2 = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+      if (driveMatch2 && url.includes('drive.google.com')) driveFileId = driveMatch2[1];
+    }
+    if (driveFileId) {
+      url = `https://drive.google.com/uc?export=download&confirm=t&id=${driveFileId}`;
+    }
+
     const resp = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0' },
+      headers: {
+        'User-Agent': 'Mozilla/5.0',
+        'Accept': 'application/pdf,image/*,*/*',
+      },
       redirect: 'follow',
     });
 
     if (!resp.ok) return { ok: false, message: 'HTTP ' + resp.status };
 
+    const contentType = resp.headers.get('content-type') || '';
+
+    // 구글 드라이브 HTML 페이지 반환 감지
+    if (contentType.includes('text/html') && driveFileId) {
+      return {
+        ok: false,
+        message: '구글 드라이브 파일을 가져올 수 없습니다.\n파일 공유 설정을 "링크가 있는 모든 사용자"로 변경해 주세요.',
+      };
+    }
+
     const buf    = await resp.arrayBuffer();
     const base64 = Buffer.from(buf).toString('base64');
-    const mime   = resp.headers.get('content-type') || detectMime(url);
+    const mime   = contentType || detectMime(url);
 
     return {
       ok:       true,
