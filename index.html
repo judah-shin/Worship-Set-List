@@ -1501,7 +1501,7 @@ function updateFullviewUI(){
     clearTimeout(fullviewPeekTimer);
     clearTimeout(menuHideTimer);
     fBtn.classList.add('active');
-    exitBtn.classList.add('show');
+    exitBtn.classList.remove('show');
     clearTimeout(fullviewExitTimer);
   } else {
     hdr.classList.remove('fullview'); hdr.classList.remove('fullview-peek');
