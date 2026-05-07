@@ -1583,7 +1583,7 @@ function showViewerNav(){
   nav.classList.remove('hidden');
   // ★ 전체보기 중에는 상하 메뉴(peek) 완전 차단 — 화살표만 잠깐 표시
   clearTimeout(navHideTimer);
-  navHideTimer = setTimeout(function(){ nav.classList.add('hidden'); }, 2000);
+  navHideTimer = setTimeout(function(){ nav.classList.add('hidden'); }, 1000);
 }
 
 // ══════════════════════════════════════════════
