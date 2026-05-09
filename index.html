@@ -1529,9 +1529,8 @@ function updateFullviewUI(){
 }
 
 function showFullviewExit(){
-  if(!isFullview) return;
-  document.getElementById('fullview-exit').classList.add('show');
-  clearTimeout(fullviewExitTimer);
+  // 전체보기 종료 버튼 미사용 — 더블탭으로 종료
+  return;
 }
 
 function peekFullviewMenu(){
