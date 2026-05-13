@@ -28,6 +28,7 @@ function normDate(val) {
 //  헬퍼 — MIME 감지 / 파일 분류
 // ================================================================
 function detectMime(url) {
+  // ?쿼리 파라미터 제거 후 확장자 추출
   const ext = (url || '').split('?')[0].split('.').pop().toLowerCase();
   const map = {
     pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg',
@@ -37,10 +38,20 @@ function detectMime(url) {
   return map[ext] || 'application/octet-stream';
 }
 
-function classifyType(mime, url) {
-  const m = mime || detectMime(url || '');
+function classifyType(mime, url, originalUrl) {
+  // MIME 타입 앞부분만 추출 ('; charset=UTF-8' 등 제거)
+  const m = (mime || '').split(';')[0].trim().toLowerCase();
+
   if (m === 'application/pdf') return 'pdf';
   if (m.startsWith('image/')) return 'image';
+
+  // MIME으로 판단 못한 경우 → 원본 파일명 확장자로 추측
+  // Google Drive 변환 URL은 확장자가 없으므로 originalUrl 사용
+  const checkUrl = originalUrl || url || '';
+  const ext = checkUrl.split('?')[0].split('.').pop().toLowerCase();
+  if (ext === 'pdf') return 'pdf';
+  if (['jpg','jpeg','png','gif','webp','bmp','tiff','tif','svg'].includes(ext)) return 'image';
+
   return 'unknown';
 }
 
@@ -365,7 +376,8 @@ async function fetchFileAsBase64(fileUrl) {
       ok:       true,
       base64,
       mimeType: mime,
-      fileType: classifyType(mime, url),
+      // originalFileUrl: 원본 파일명(확장자 포함)으로 fileType 보정
+      fileType: classifyType(mime, url, fileUrl),
     };
   } catch (e) {
     return { ok: false, message: e.message };
