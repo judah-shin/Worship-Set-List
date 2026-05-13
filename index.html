@@ -1015,7 +1015,7 @@ html, body { height: 100%; font-family: 'Noto Sans KR', sans-serif; background: 
             <span>등록된 악보</span>
             <button onclick="loadScoreList()" style="background:rgba(201,168,76,.15);border:1px solid rgba(201,168,76,.3);color:var(--gold);font-size:11px;padding:3px 10px;border-radius:6px;cursor:pointer">새로고침</button>
           </h3>
-          <div id="score-list-body" style="margin-top:9px">
+          <div style="margin-top:9px;margin-bottom:8px"><input type="text" id="score-search-input" placeholder="🔍 악보 검색..." oninput="filterScoreList()" style="width:100%;box-sizing:border-box;background:rgba(255,255,255,.07);border:1px solid rgba(201,168,76,.25);border-radius:8px;color:var(--cream);font-size:13px;padding:8px 12px;outline:none"/></div><div id="score-list-body" style="margin-top:4px">
             <p style="font-size:12px;color:var(--gold-dim);text-align:center">새로고침을 눌러주세요.</p>
           </div>
         </div>
@@ -2300,23 +2300,45 @@ function toggleScoreList(){
 }
 async function loadScoreList(){
   var body=document.getElementById('score-list-body');
+  var searchInput=document.getElementById('score-search-input');
+  if(searchInput) searchInput.value='';
+  _scoreListCache=[];
   body.innerHTML='<p style="font-size:12px;color:var(--gold-dim);text-align:center">불러오는 중...</p>';
   try{
     var r=await gas('getAllScores'); if(!r.ok) throw new Error(r.message);
-    if(r.data.length===0){body.innerHTML='<p style="font-size:12px;color:var(--gold-dim);text-align:center">등록된 악보가 없습니다.</p>';return;}
-    body.innerHTML='';
-    r.data.forEach(function(s){
-      var row=document.createElement('div');
-      row.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:rgba(255,255,255,.04);border-radius:8px;margin-bottom:5px;gap:6px';
-      var info=document.createElement('div'); info.style.cssText='flex:1;min-width:0';
-      info.innerHTML='<div style="font-size:13px;color:var(--cream);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escHtml(s.song_title)+'</div><div style="font-size:11px;color:var(--gold-dim);margin-top:1px">'+escHtml(s.file_name)+'</div>';
-      var dBtn=document.createElement('button');
-      dBtn.textContent='🗑';
-      dBtn.style.cssText='background:rgba(200,70,70,.18);border:1px solid rgba(200,70,70,.35);color:#e07070;border-radius:7px;font-size:12px;padding:5px 9px;cursor:pointer;flex-shrink:0';
-      (function(fname,stitle){ dBtn.addEventListener('click',function(){ askDeleteScore(fname,stitle); }); })(s.file_name,s.song_title);
-      row.appendChild(info); row.appendChild(dBtn); body.appendChild(row);
-    });
+    _scoreListCache=r.data||[];
+    filterScoreList();
   }catch(e){body.innerHTML='<p style="font-size:12px;color:#f88;text-align:center">'+e.message+'</p>';}
+}
+// 악보 목록 검색 필터
+var _scoreListCache=[];
+function filterScoreList(){
+  var keyword=(document.getElementById('score-search-input').value||'').toLowerCase().trim();
+  var body=document.getElementById('score-list-body');
+  var filtered=keyword
+    ?_scoreListCache.filter(function(s){
+        return s.song_title.toLowerCase().indexOf(keyword)>=0||
+               s.file_name.toLowerCase().indexOf(keyword)>=0;
+      })
+    :_scoreListCache;
+  if(filtered.length===0){
+    body.innerHTML='<p style="font-size:12px;color:var(--gold-dim);text-align:center">'
+      +(keyword?'검색 결과가 없습니다.':'등록된 악보가 없습니다.')+'</p>';
+    return;
+  }
+  body.innerHTML='';
+  filtered.forEach(function(s){
+    var row=document.createElement('div');
+    row.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:rgba(255,255,255,.04);border-radius:8px;margin-bottom:5px;gap:6px';
+    var info=document.createElement('div'); info.style.cssText='flex:1;min-width:0';
+    info.innerHTML='<div style="font-size:13px;color:var(--cream);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escHtml(s.song_title)+'</div>'
+      +'<div style="font-size:11px;color:var(--gold-dim);margin-top:1px">'+escHtml(s.file_name)+'</div>';
+    var dBtn=document.createElement('button');
+    dBtn.textContent='🗑';
+    dBtn.style.cssText='background:rgba(200,70,70,.18);border:1px solid rgba(200,70,70,.35);color:#e07070;border-radius:7px;font-size:12px;padding:5px 9px;cursor:pointer;flex-shrink:0';
+    (function(fname,stitle){ dBtn.addEventListener('click',function(){ askDeleteScore(fname,stitle); }); })(s.file_name,s.song_title);
+    row.appendChild(info); row.appendChild(dBtn); body.appendChild(row);
+  });
 }
 function askDeleteScore(fileName,title){
   pendingDeleteScore=fileName;
