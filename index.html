@@ -1753,8 +1753,23 @@ function viewerNext(){
   if(S.viewerIdx<S.viewerSongs.length-1) loadAndShow(S.viewerIdx+1);
 }
 
-function zoomIn(){ if(S.fitMode){toast('핏 모드에서는 줌을 사용할 수 없습니다.');return;} S.pdfZoom=Math.min(3,S.pdfZoom+0.25); applyZoom(); }
-function zoomOut(){ if(S.fitMode){toast('핏 모드에서는 줌을 사용할 수 없습니다.');return;} S.pdfZoom=Math.max(0.5,S.pdfZoom-0.25); if(S.pdfZoom<=1.0){S.panX=0;S.panY=0;} applyZoom(); }
+function zoomIn(){
+  if(S.fitMode){toast('핏 모드에서는 줌을 사용할 수 없습니다.');return;}
+  // ★ [문제2 핵심 수정] S.pdfZoom 변경 전에 현재 zoom 기준 필기를 먼저 저장
+  //   _saveAnnotationSilent 안의 _getScoreTransform()은 S.pdfZoom을 사용하므로
+  //   zoom 변경 후에 호출하면 잘못된 좌표로 추출되어 필기가 사라지는 원인이 됨
+  _saveAnnotationSilent();
+  S.pdfZoom=Math.min(3,S.pdfZoom+0.25);
+  applyZoom();
+}
+function zoomOut(){
+  if(S.fitMode){toast('핏 모드에서는 줌을 사용할 수 없습니다.');return;}
+  // ★ [문제2 핵심 수정] S.pdfZoom 변경 전에 현재 zoom 기준 필기를 먼저 저장
+  _saveAnnotationSilent();
+  S.pdfZoom=Math.max(0.5,S.pdfZoom-0.25);
+  if(S.pdfZoom<=1.0){S.panX=0;S.panY=0;}
+  applyZoom();
+}
 /** ★ 더블탭/더블클릭 공통 동작:
  *   - 확대 중(zoom>1) → zoom=1.0 + pan=0 기본 보기로 리셋
  *   - 기본 보기(zoom=1.0) → 전체보기 토글
@@ -1776,10 +1791,12 @@ function onDoubleTap(){
   toggleFullview();
 }
 function applyZoom(){
-  // ── 순서 보장: ①현재 필기 저장 → ②악보 크기 변경 → ③필기 재스케일 복원 ──
+  // ── 순서 보장: ①악보 크기 변경 → ②필기 재스케일 복원 ──
+  // ★ [문제2 수정] _saveAnnotationSilent()를 여기서 호출하지 않음
+  //   이유: zoomIn/zoomOut/핀치/더블탭에서 S.pdfZoom 변경 전에 이미 저장 완료
+  //   여기서 호출하면 이미 새 pdfZoom이 적용된 상태라 좌표 추출이 틀려 필기가 사라짐
   // syncAnnotationCanvasSize(skipLoad=true) 로 canvas 초기화 시 자동 loadAnnotation 억제
   // → 악보 크기가 확정된 뒤 loadAnnotation을 명시적으로 한 번만 호출
-  _saveAnnotationSilent();   // ① 현재 zoom 기준 필기 저장 (scoreW/H 포함)
 
   var img = document.getElementById('img-viewer');
   if(img.style.display !== 'none'){
@@ -1793,7 +1810,9 @@ function applyZoom(){
       img.style.cssText = _scoreCSS(cssW, cssH);  // ② 새 크기 적용
       syncAnnotationCanvasSize(true);               // ② canvas 리사이즈 (loadAnnotation 억제)
       applyPan();
-      loadAnnotation();                             // ③ 새 scoreW/H 기준 필기 재스케일
+      // ★ [문제2 수정] 이중 rAF: img.style.cssText 반영 후 레이아웃이 확정된 다음 프레임에서 복원
+      //   단일 rAF는 스타일 반영 전에 _getScoreTransform()이 실행되어 좌표가 어긋남
+      requestAnimationFrame(function(){ requestAnimationFrame(loadAnnotation); });
     }
   } else {
     // PDF: renderPdfPage 내부에서도 syncAnnotationCanvasSize → loadAnnotation 호출하므로
@@ -1821,7 +1840,9 @@ async function _renderPdfPageForZoom(){
   document.getElementById('viewer-page-info').textContent = S.pdfPage + ' / ' + S.pdfTotalPages + ' 페이지';
   syncAnnotationCanvasSize(true);   // canvas 리사이즈 (loadAnnotation 억제)
   applyPan();
-  loadAnnotation();                 // 새 scoreW/H 기준 필기 재스케일
+  // ★ [문제2 수정] PDF는 await render 완료 후에도 canvas.style 레이아웃 확정에 프레임이 필요
+  //   이중 rAF로 _getScoreTransform()이 정확한 cssW/H를 읽도록 보장
+  requestAnimationFrame(function(){ requestAnimationFrame(loadAnnotation); });
 }
 
 // ── Pan 헬퍼 ──────────────────────────────────
@@ -2061,6 +2082,7 @@ function setupGestures(){
       isPinching=true;
       pinchStartDist = getTouchDist(e.touches[0], e.touches[1]);
       pinchStartZoom = S.pdfZoom;
+      el._pinchSavedOnce = false; // ★ 핀치 시작마다 플래그 초기화
       var mid = getTouchMid(e.touches[0], e.touches[1]);
       pinchMidX=mid.x; pinchMidY=mid.y;
       pinchPanOrigX=S.panX; pinchPanOrigY=S.panY;
@@ -2084,6 +2106,9 @@ function setupGestures(){
         var newZoom = pinchStartZoom * (dist / pinchStartDist);
         newZoom = Math.max(0.5, Math.min(3.0, newZoom));
         if(Math.abs(newZoom - S.pdfZoom) > 0.01){
+          // ★ [문제2] 핀치줌도 S.pdfZoom 변경 전에 현재 zoom 기준 필기 저장
+          //   단, 핀치 중 매 프레임마다 저장하면 성능 저하 → pinchSavedOnce 플래그로 1회만 저장
+          if(!el._pinchSavedOnce){ _saveAnnotationSilent(); el._pinchSavedOnce = true; }
           S.pdfZoom = newZoom;
           applyZoom();
         }
@@ -2438,13 +2463,25 @@ function updateUndoUI(){
   if(r) r.style.opacity=redoStack.length>0?'1':'0.35';
 }
 
+// ★ [문제1 수정] 저장 디바운스 타이머
+//   연속 획 입력 중 매 획마다 toDataURL을 실행하면 메인 스레드가 블로킹됨
+//   마지막 획 종료 후 300ms 뒤에 한 번만 실제 저장을 실행하도록 디바운스
+var _saveDebounceTimer = null;
+
 function saveAnnotation(){
+  // 디바운스: 이전 예약 취소 후 300ms 후 실행 예약
+  if(_saveDebounceTimer) clearTimeout(_saveDebounceTimer);
+  _saveDebounceTimer = setTimeout(_doSaveAnnotation, 300);
+}
+
+function _doSaveAnnotation(){
+  _saveDebounceTimer = null;
   var aCanvas = document.getElementById('annotation-canvas');
   var key     = annotKey();
-  if(!key){ toast('저장할 악보가 없습니다.'); return; }
+  if(!key){ return; }  // 토스트 제거 — 저장 실패는 조용히 처리
 
   var tr = _getScoreTransform();
-  if(tr.scoreW0 <= 0 || tr.scoreH0 <= 0){ toast('저장할 악보가 없습니다.'); return; }
+  if(tr.scoreW0 <= 0 || tr.scoreH0 <= 0){ return; }
 
   var off = document.createElement('canvas');
   off.width  = Math.round(tr.scoreW0);
