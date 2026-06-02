@@ -1337,8 +1337,11 @@ function getWrapLogicalSize(){
   };
 }
 function toggleFullview(){
-  // 전환 전 현재 필기 저장
-  _saveAnnotationSilent();
+  // ★ [문제2 핵심 수정] 토글 시 dirty=true일 때만 저장
+  //   필기 변경 없이 토글만 하면 저장 안 함 → toDataURL/drawImage 누적 변형 방지
+  //   디바운스 대기 중인 저장도 즉시 flush해서 좌표 어긋남 방지
+  _flushSaveAnnotation();
+  if(_annotationDirty) _saveAnnotationSilent();
 
   isFullview = !isFullview;
   // 전체보기 진입 직후 showViewerNav의 peek 발화 억제 (50ms)
@@ -1394,7 +1397,9 @@ function _saveAnnotationSilent(){
 }
 function exitFullview(){
   if(!isFullview) return;
-  _saveAnnotationSilent();
+  // ★ [문제2] dirty일 때만 저장
+  _flushSaveAnnotation();
+  if(_annotationDirty) _saveAnnotationSilent();
   isFullview = false;
   updateFullviewUI();
   var canvas = document.getElementById('pdf-canvas');
@@ -1755,17 +1760,14 @@ function viewerNext(){
 
 function zoomIn(){
   if(S.fitMode){toast('핏 모드에서는 줌을 사용할 수 없습니다.');return;}
-  // ★ [문제2 핵심 수정] S.pdfZoom 변경 전에 현재 zoom 기준 필기를 먼저 저장
-  //   _saveAnnotationSilent 안의 _getScoreTransform()은 S.pdfZoom을 사용하므로
-  //   zoom 변경 후에 호출하면 잘못된 좌표로 추출되어 필기가 사라지는 원인이 됨
-  _saveAnnotationSilent();
+  // ★ [문제2-A] S.pdfZoom 변경 전 현재 zoom 기준 필기 저장
+  if(_annotationDirty) _saveAnnotationSilent();
   S.pdfZoom=Math.min(3,S.pdfZoom+0.25);
   applyZoom();
 }
 function zoomOut(){
   if(S.fitMode){toast('핏 모드에서는 줌을 사용할 수 없습니다.');return;}
-  // ★ [문제2 핵심 수정] S.pdfZoom 변경 전에 현재 zoom 기준 필기를 먼저 저장
-  _saveAnnotationSilent();
+  if(_annotationDirty) _saveAnnotationSilent();
   S.pdfZoom=Math.max(0.5,S.pdfZoom-0.25);
   if(S.pdfZoom<=1.0){S.panX=0;S.panY=0;}
   applyZoom();
@@ -1782,7 +1784,9 @@ function onDoubleTap(){
   }
   if(S.pdfZoom !== 1.0 || S.panX !== 0 || S.panY !== 0){
     // 확대/이동 상태 → 기본 보기 리셋
-    _saveAnnotationSilent();
+    // ★ [문제2] dirty일 때만 저장
+    _flushSaveAnnotation();
+    if(_annotationDirty) _saveAnnotationSilent();
     S.pdfZoom = 1.0; S.panX = 0; S.panY = 0;
     applyZoom();
     return;
@@ -1792,11 +1796,8 @@ function onDoubleTap(){
 }
 function applyZoom(){
   // ── 순서 보장: ①악보 크기 변경 → ②필기 재스케일 복원 ──
-  // ★ [문제2 수정] _saveAnnotationSilent()를 여기서 호출하지 않음
-  //   이유: zoomIn/zoomOut/핀치/더블탭에서 S.pdfZoom 변경 전에 이미 저장 완료
-  //   여기서 호출하면 이미 새 pdfZoom이 적용된 상태라 좌표 추출이 틀려 필기가 사라짐
-  // syncAnnotationCanvasSize(skipLoad=true) 로 canvas 초기화 시 자동 loadAnnotation 억제
-  // → 악보 크기가 확정된 뒤 loadAnnotation을 명시적으로 한 번만 호출
+  // ★ [문제2-C] _saveAnnotationSilent는 zoomIn/zoomOut/핀치에서 이미 호출됨
+  //   여기서 다시 호출하면 S.pdfZoom이 이미 변경된 상태라 좌표 추출이 틀림
 
   var img = document.getElementById('img-viewer');
   if(img.style.display !== 'none'){
@@ -1808,10 +1809,9 @@ function applyZoom(){
       var cssW  = Math.round(w * scale);
       var cssH  = Math.round(h * scale);
       img.style.cssText = _scoreCSS(cssW, cssH);  // ② 새 크기 적용
-      syncAnnotationCanvasSize(true);               // ② canvas 리사이즈 (loadAnnotation 억제)
+      syncAnnotationCanvasSize(true);
       applyPan();
-      // ★ [문제2 수정] 이중 rAF: img.style.cssText 반영 후 레이아웃이 확정된 다음 프레임에서 복원
-      //   단일 rAF는 스타일 반영 전에 _getScoreTransform()이 실행되어 좌표가 어긋남
+      // ★ 이중 rAF: 레이아웃 확정 후 _getScoreTransform이 정확한 scoreW/H 읽도록
       requestAnimationFrame(function(){ requestAnimationFrame(loadAnnotation); });
     }
   } else {
@@ -1838,10 +1838,8 @@ async function _renderPdfPageForZoom(){
   canvas.style.cssText = _scoreCSS(cssW, cssH);
   await page.render({canvasContext: canvas.getContext('2d'), viewport: vp}).promise;
   document.getElementById('viewer-page-info').textContent = S.pdfPage + ' / ' + S.pdfTotalPages + ' 페이지';
-  syncAnnotationCanvasSize(true);   // canvas 리사이즈 (loadAnnotation 억제)
+  syncAnnotationCanvasSize(true);
   applyPan();
-  // ★ [문제2 수정] PDF는 await render 완료 후에도 canvas.style 레이아웃 확정에 프레임이 필요
-  //   이중 rAF로 _getScoreTransform()이 정확한 cssW/H를 읽도록 보장
   requestAnimationFrame(function(){ requestAnimationFrame(loadAnnotation); });
 }
 
@@ -2082,7 +2080,7 @@ function setupGestures(){
       isPinching=true;
       pinchStartDist = getTouchDist(e.touches[0], e.touches[1]);
       pinchStartZoom = S.pdfZoom;
-      el._pinchSavedOnce = false; // ★ 핀치 시작마다 플래그 초기화
+      el._pinchSavedOnce = false;
       var mid = getTouchMid(e.touches[0], e.touches[1]);
       pinchMidX=mid.x; pinchMidY=mid.y;
       pinchPanOrigX=S.panX; pinchPanOrigY=S.panY;
@@ -2106,9 +2104,11 @@ function setupGestures(){
         var newZoom = pinchStartZoom * (dist / pinchStartDist);
         newZoom = Math.max(0.5, Math.min(3.0, newZoom));
         if(Math.abs(newZoom - S.pdfZoom) > 0.01){
-          // ★ [문제2] 핀치줌도 S.pdfZoom 변경 전에 현재 zoom 기준 필기 저장
-          //   단, 핀치 중 매 프레임마다 저장하면 성능 저하 → pinchSavedOnce 플래그로 1회만 저장
-          if(!el._pinchSavedOnce){ _saveAnnotationSilent(); el._pinchSavedOnce = true; }
+          // ★ [문제2-B] 핀치 시작 시 1회만 저장 (매 프레임 저장 시 성능 저하)
+          if(!el._pinchSavedOnce){
+            if(_annotationDirty) _saveAnnotationSilent();
+            el._pinchSavedOnce = true;
+          }
           S.pdfZoom = newZoom;
           applyZoom();
         }
@@ -2422,6 +2422,7 @@ function clearAnnotation(){
   ctx.clearRect(0,0,aCanvas.width,aCanvas.height);
   var key=annotKey();
   if(key){ try{localStorage.removeItem(key);}catch(e){} }
+  _annotationDirty = false;  // 비웠으니 dirty 해제
   updateUndoUI();
 }
 
@@ -2463,22 +2464,36 @@ function updateUndoUI(){
   if(r) r.style.opacity=redoStack.length>0?'1':'0.35';
 }
 
-// ★ [문제1 수정] 저장 디바운스 타이머
-//   연속 획 입력 중 매 획마다 toDataURL을 실행하면 메인 스레드가 블로킹됨
-//   마지막 획 종료 후 300ms 뒤에 한 번만 실제 저장을 실행하도록 디바운스
+// ★ [문제2 핵심] 필기 변경 추적용 dirty 플래그
+//   - 펜으로 실제 필기/지우기/clear 시에만 true
+//   - 모드 토글(전체보기 진입/해제)만으로는 데이터가 변경되지 않으므로 false 유지
+//   - toggleFullview/onDoubleTap에서 dirty=false일 때는 저장 호출 안 함
+//     → 토글마다 toDataURL→drawImage가 누적되어 필기가 변형되는 문제 차단
+var _annotationDirty = false;
+
+// 디바운스 타이머 — 연속 획 입력 중 매 획마다 toDataURL 실행 방지
 var _saveDebounceTimer = null;
 
 function saveAnnotation(){
-  // 디바운스: 이전 예약 취소 후 300ms 후 실행 예약
+  _annotationDirty = true;  // ★ 외부 호출(endDraw, undo, redo, clear)은 항상 dirty
   if(_saveDebounceTimer) clearTimeout(_saveDebounceTimer);
   _saveDebounceTimer = setTimeout(_doSaveAnnotation, 300);
+}
+
+// 디바운스 대기 중인 저장을 즉시 실행 (모드 전환 직전 등)
+function _flushSaveAnnotation(){
+  if(_saveDebounceTimer){
+    clearTimeout(_saveDebounceTimer);
+    _saveDebounceTimer = null;
+    _doSaveAnnotation();
+  }
 }
 
 function _doSaveAnnotation(){
   _saveDebounceTimer = null;
   var aCanvas = document.getElementById('annotation-canvas');
   var key     = annotKey();
-  if(!key){ return; }  // 토스트 제거 — 저장 실패는 조용히 처리
+  if(!key){ return; }
 
   var tr = _getScoreTransform();
   if(tr.scoreW0 <= 0 || tr.scoreH0 <= 0){ return; }
@@ -2502,11 +2517,13 @@ function _doSaveAnnotation(){
 
   try{
     localStorage.setItem(key, JSON.stringify(payload));
+    _annotationDirty = false;  // 저장 완료 → dirty 해제
     toast('✓ 필기 저장됨');
   }catch(e){
     cleanOldAnnotations();
     try{
       localStorage.setItem(key, JSON.stringify(payload));
+      _annotationDirty = false;
       toast('✓ 필기 저장됨 (오래된 필기 일부 삭제)');
     }catch(e2){ toast('저장 실패 (용량 부족): ' + e2.message); }
   }
@@ -2526,6 +2543,7 @@ function loadAnnotation(){
 
   ctx.clearRect(0, 0, aCanvas.width, aCanvas.height);
   resetUndoStack();
+  _annotationDirty = false;  // 새로 로드했으니 dirty 해제
 
   var key = annotKey();
   if(!key) return;
@@ -2879,28 +2897,55 @@ function setupOrientationHandler(){
     resizeTimer=setTimeout(onOrientationChange,100);
   });
 
-  // ── 다른 앱에서 돌아올 때 레이아웃 복원 (iOS Safari 대응) ──
+  // ── [문제1 수정] 다른 앱에서 돌아올 때 레이아웃 복원 (iOS Safari 대응) ──
+  //   기존 문제: viewport 리셋만 하고 강제 reflow가 없어 wrap.getBoundingClientRect()가
+  //   잘못된 크기를 반환해 화면이 잘려보임
+  //   수정: viewport 리셋 + scrollTo + resize 이벤트 + 강제 reflow 트리거
   document.addEventListener('visibilitychange',function(){
-    if(document.visibilityState==='visible'){
-      var metaVp=document.querySelector('meta[name="viewport"]');
-      if(metaVp){
-        var orig=metaVp.getAttribute('content');
-        metaVp.setAttribute('content','width=device-width,initial-scale=1,minimum-scale=1,maximum-scale=1');
-        setTimeout(function(){ metaVp.setAttribute('content',orig); },50);
-      }
-      setTimeout(function(){
-        var viewerActive=document.getElementById('screen-viewer').classList.contains('active');
-        if(!viewerActive) return;
-        var canvas=document.getElementById('pdf-canvas');
-        var img=document.getElementById('img-viewer');
-        if(canvas&&canvas.style.display!=='none'){
-          if(isFullview) renderFitPdfPage(); else renderPdfPage();
-        } else if(img&&img.style.display!=='none'){
-          applyImageSquareMode();
-        }
-        syncAnnotationCanvasSize(true);
-      },200);
+    if(document.visibilityState!=='visible') return;
+
+    // 1단계: viewport 메타 강제 리셋 (iOS Safari가 viewport 재계산하도록)
+    var metaVp=document.querySelector('meta[name="viewport"]');
+    var origVp=null;
+    if(metaVp){
+      origVp=metaVp.getAttribute('content');
+      metaVp.setAttribute('content','width=device-width,initial-scale=1,minimum-scale=1,maximum-scale=1');
     }
+
+    // 2단계: 스크롤 위치 강제 복귀 (iOS Safari가 위로 스크롤되어 화면 잘리는 현상 방지)
+    window.scrollTo(0, 0);
+    if(document.body) document.body.scrollTop = 0;
+    if(document.documentElement) document.documentElement.scrollTop = 0;
+
+    // 3단계: 강제 reflow — body에 일시적 transform 적용으로 레이아웃 재계산 유도
+    if(document.body){
+      document.body.style.transform = 'translateZ(0)';
+      // 강제로 layout 읽기 (reflow 트리거)
+      void document.body.offsetHeight;
+    }
+
+    setTimeout(function(){
+      // viewport 메타 복원
+      if(metaVp && origVp) metaVp.setAttribute('content', origVp);
+      // body transform 해제
+      if(document.body) document.body.style.transform = '';
+      // resize 이벤트 디스패치 — 모든 ResizeObserver 및 resize 리스너 발화
+      window.dispatchEvent(new Event('resize'));
+    }, 100);
+
+    // 4단계: 뷰어 화면이면 악보/필기 재렌더 (충분한 대기 후)
+    setTimeout(function(){
+      var viewerActive=document.getElementById('screen-viewer').classList.contains('active');
+      if(!viewerActive) return;
+      var canvas=document.getElementById('pdf-canvas');
+      var img=document.getElementById('img-viewer');
+      if(canvas&&canvas.style.display!=='none'){
+        if(isFullview) renderFitPdfPage(); else renderPdfPage();
+      } else if(img&&img.style.display!=='none'){
+        applyImageSquareMode();
+      }
+      syncAnnotationCanvasSize(true);
+    }, 350);  // 200ms → 350ms로 늘려 viewport 리셋 완료 후 안전하게 실행
   });
 
   onOrientationChange();
