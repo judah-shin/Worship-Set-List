@@ -322,14 +322,70 @@ async function getAllScores() {
 //  10. 파일 fetch — CORS 프록시 (fetchFileAsBase64)
 //  ※ 큰 파일은 api/fetch-file.js로 분리됨
 //     여기서는 gas() 라우터 호환용으로 fetch-file API를 내부 호출
+//
+//  ★ 진단 강화 (v3.1):
+//   - 모든 단계에서 Vercel 로그 출력 (어떤 URL이 어떤 응답을 받았는지)
+//   - HTML 응답 감지 — driveFileId 없어도 감지 (Google Drive 일반 URL 케이스)
+//   - 1회 자동 재시도 (Google Drive 일시 장애 대응, 2초 대기)
+//   - 에러 메시지에 시도한 URL 일부 포함
 // ================================================================
+async function _tryFetch(url, originalUrl, driveFileId, attempt) {
+  console.log(`[fetchFile] 시도 ${attempt} URL=${url}`);
+
+  const resp = await fetch(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0',
+      'Accept': 'application/pdf,image/*,*/*',
+    },
+    redirect: 'follow',
+  });
+
+  console.log(`[fetchFile] 응답 status=${resp.status} content-type=${resp.headers.get('content-type')}`);
+
+  if (!resp.ok) {
+    return { ok: false, status: resp.status, message: `HTTP ${resp.status} (시도 ${attempt})` };
+  }
+
+  const contentType = resp.headers.get('content-type') || '';
+
+  // ★ HTML 응답 감지 강화 — driveFileId 유무 무관하게 감지
+  //   Google Drive가 PDF/이미지 대신 HTML(로그인 페이지, 바이러스 검사 페이지 등)을 반환하는 케이스
+  if (contentType.includes('text/html')) {
+    // 응답 본문 일부 확인 — 어떤 HTML인지 로그에 남김
+    const sample = await resp.text();
+    const head = sample.slice(0, 300).replace(/\s+/g, ' ');
+    console.log(`[fetchFile] HTML 응답 본문 일부: ${head}`);
+    return {
+      ok: false,
+      isHtml: true,
+      message: 'Google Drive가 HTML 페이지를 반환했습니다 (파일 직접 다운로드 실패). 파일 형식 또는 권한을 확인해 주세요.',
+    };
+  }
+
+  const buf    = await resp.arrayBuffer();
+  const base64 = Buffer.from(buf).toString('base64');
+  const mime   = contentType || detectMime(url);
+
+  console.log(`[fetchFile] 성공 size=${buf.byteLength} bytes mime=${mime}`);
+
+  return {
+    ok:       true,
+    base64,
+    mimeType: mime,
+    fileType: classifyType(mime, url, originalUrl),
+  };
+}
+
 async function fetchFileAsBase64(fileUrl) {
   try {
     if (!fileUrl || fileUrl.trim() === '') {
       return { ok: false, message: '파일 URL이 없습니다.' };
     }
 
-    let url = fileUrl.trim();
+    const originalUrl = fileUrl.trim();
+    let url = originalUrl;
+
+    console.log(`[fetchFile] 원본 URL: ${originalUrl}`);
 
     // OneDrive URL 변환
     if (url.includes('1drv.ms') || url.includes('onedrive.live.com')) {
@@ -346,40 +402,32 @@ async function fetchFileAsBase64(fileUrl) {
     }
     if (driveFileId) {
       url = `https://drive.google.com/uc?export=download&confirm=t&id=${driveFileId}`;
+      console.log(`[fetchFile] Drive ID 추출: ${driveFileId} → 변환된 URL: ${url}`);
+    } else if (originalUrl.includes('drive.google.com') || originalUrl.includes('docs.google.com')) {
+      console.warn(`[fetchFile] Google Drive URL이지만 file ID 추출 실패: ${originalUrl}`);
     }
 
-    const resp = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0',
-        'Accept': 'application/pdf,image/*,*/*',
-      },
-      redirect: 'follow',
-    });
+    // 1차 시도
+    let result = await _tryFetch(url, originalUrl, driveFileId, 1);
+    if (result.ok) return result;
 
-    if (!resp.ok) return { ok: false, message: 'HTTP ' + resp.status };
-
-    const contentType = resp.headers.get('content-type') || '';
-
-    // 구글 드라이브 HTML 페이지 반환 감지
-    if (contentType.includes('text/html') && driveFileId) {
-      return {
-        ok: false,
-        message: '구글 드라이브 파일을 가져올 수 없습니다.\n파일 공유 설정을 "링크가 있는 모든 사용자"로 변경해 주세요.',
-      };
+    // ★ 1차 실패 시 자동 재시도 (2초 대기) — Google Drive 일시 장애 대응
+    //   단, HTML 응답은 재시도해도 같은 결과이므로 재시도 안 함
+    if (!result.isHtml) {
+      console.log(`[fetchFile] 1차 실패 (${result.message}), 2초 후 재시도`);
+      await new Promise(r => setTimeout(r, 2000));
+      result = await _tryFetch(url, originalUrl, driveFileId, 2);
+      if (result.ok) return result;
     }
 
-    const buf    = await resp.arrayBuffer();
-    const base64 = Buffer.from(buf).toString('base64');
-    const mime   = contentType || detectMime(url);
-
+    // 최종 실패 — 어떤 URL이 실패했는지 메시지에 포함
+    const urlTail = originalUrl.length > 60 ? '...' + originalUrl.slice(-60) : originalUrl;
     return {
-      ok:       true,
-      base64,
-      mimeType: mime,
-      // originalFileUrl: 원본 파일명(확장자 포함)으로 fileType 보정
-      fileType: classifyType(mime, url, fileUrl),
+      ok: false,
+      message: `${result.message}\nURL: ${urlTail}`,
     };
   } catch (e) {
+    console.error('[fetchFile] 예외:', e);
     return { ok: false, message: e.message };
   }
 }
