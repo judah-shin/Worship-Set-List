@@ -302,6 +302,60 @@ async function adminDeleteSong(file_name) {
 }
 
 // ================================================================
+//  ★ 8-2. 악보 정보 수정 (관리자)
+//   - song_title, file_url 만 수정 가능 (file_name은 식별자라 변경 안 함)
+//   - 같은 file_name을 가진 set_list 항목들의 song_title, file_url도 함께 업데이트
+//     → URL 변경 시 기존 셋리스트도 즉시 새 URL 사용
+// ================================================================
+async function adminUpdateSong(payload) {
+  try {
+    const { file_name, song_title, file_url } = payload || {};
+    if (!file_name || !song_title || !file_url) {
+      return { ok: false, message: '곡 제목, 파일명, URL을 모두 입력해 주세요.' };
+    }
+
+    const target = file_name.trim();
+
+    // 1) scores 테이블 업데이트
+    const { data: scoreData, error: scoreErr } = await supabase
+      .from('scores')
+      .update({ song_title: song_title.trim(), file_url: file_url.trim() })
+      .eq('file_name', target)
+      .select();
+
+    if (scoreErr) throw new Error(scoreErr.message);
+    if (!scoreData || scoreData.length === 0) {
+      return { ok: false, message: '악보를 찾을 수 없습니다: ' + target };
+    }
+
+    // 2) set_list 테이블의 같은 file_name 항목들도 함께 업데이트 (정합성 유지)
+    const { data: setData, error: setErr } = await supabase
+      .from('set_list')
+      .update({ song_title: song_title.trim(), file_url: file_url.trim() })
+      .eq('file_name', target)
+      .select();
+
+    if (setErr) {
+      console.warn('[adminUpdateSong] set_list 동기화 실패:', setErr.message);
+      return {
+        ok: true,
+        message: '악보 정보 수정 완료 (단, 기존 셋리스트 동기화 실패)',
+      };
+    }
+
+    const updatedSets = (setData || []).length;
+    return {
+      ok: true,
+      message: updatedSets > 0
+        ? `악보 정보 수정 완료 (셋리스트 ${updatedSets}건도 함께 업데이트됨)`
+        : '악보 정보 수정 완료',
+    };
+  } catch (e) {
+    return { ok: false, message: e.message };
+  }
+}
+
+// ================================================================
 //  9. 악보 전체 목록 조회 (관리자)
 // ================================================================
 async function getAllScores() {
@@ -444,6 +498,7 @@ const handlers = {
   searchSongs,
   adminAddSong,
   adminDeleteSong,
+  adminUpdateSong,
   getAllScores,
   fetchFileAsBase64,
 };
