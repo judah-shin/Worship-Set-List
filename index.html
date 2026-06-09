@@ -953,6 +953,34 @@ html, body { height: 100%; font-family: 'Noto Sans KR', sans-serif; background: 
 
 </div><!-- #app -->
 
+<!-- ★ 악보 정보 수정 다이얼로그 -->
+<div id="edit-score-dialog" role="dialog" aria-modal="true" aria-labelledby="edit-score-title" style="position:fixed;inset:0;z-index:9998;background:rgba(18,14,5,.84);backdrop-filter:blur(8px);display:none;align-items:center;justify-content:center">
+  <div style="background:linear-gradient(180deg,#221a08 0%,#1a1408 100%);border:1px solid rgba(201,168,76,.35);border-radius:14px;padding:22px 22px 18px;max-width:480px;width:88%;box-shadow:0 12px 40px rgba(0,0,0,.5)">
+    <h3 id="edit-score-title" style="margin:0 0 14px;color:var(--gold);font-size:16px;font-weight:600">악보 정보 수정</h3>
+
+    <div style="margin-bottom:12px">
+      <label style="display:block;font-size:11px;color:var(--gold-dim);margin-bottom:4px">곡 제목</label>
+      <input type="text" id="edit-song-title" style="width:100%;padding:9px 11px;background:rgba(255,255,255,.06);border:1px solid rgba(201,168,76,.3);border-radius:7px;color:var(--cream);font-size:13px;box-sizing:border-box"/>
+    </div>
+
+    <div style="margin-bottom:12px">
+      <label style="display:block;font-size:11px;color:var(--gold-dim);margin-bottom:4px">파일명 (수정 불가)</label>
+      <input type="text" id="edit-file-name" disabled style="width:100%;padding:9px 11px;background:rgba(255,255,255,.03);border:1px solid rgba(201,168,76,.15);border-radius:7px;color:var(--gold-dim);font-size:12px;box-sizing:border-box"/>
+    </div>
+
+    <div style="margin-bottom:16px">
+      <label style="display:block;font-size:11px;color:var(--gold-dim);margin-bottom:4px">파일 URL (Google Drive 공유 링크)</label>
+      <textarea id="edit-file-url" rows="3" style="width:100%;padding:9px 11px;background:rgba(255,255,255,.06);border:1px solid rgba(201,168,76,.3);border-radius:7px;color:var(--cream);font-size:11px;box-sizing:border-box;font-family:monospace;resize:vertical"></textarea>
+      <div style="font-size:10px;color:var(--gold-dim);margin-top:4px;line-height:1.5">예: https://drive.google.com/file/d/FILE_ID/view<br>※ "링크가 있는 모든 사용자" 권한 필요</div>
+    </div>
+
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button onclick="closeEditScoreDialog()" style="background:rgba(255,255,255,.06);border:1px solid rgba(201,168,76,.25);color:var(--cream);padding:9px 18px;border-radius:8px;font-size:13px;cursor:pointer">취소</button>
+      <button id="edit-score-save-btn" onclick="confirmEditScore()" style="background:var(--gold);border:none;color:#1a1408;padding:9px 20px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">저장</button>
+    </div>
+  </div>
+</div>
+
 <div id="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-dialog-title">
   <div class="confirm-box">
     <h3 id="confirm-dialog-title">삭제 확인</h3>
@@ -2279,13 +2307,68 @@ function filterScoreList(){
     var info=document.createElement('div'); info.style.cssText='flex:1;min-width:0';
     info.innerHTML='<div style="font-size:13px;color:var(--cream);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escHtml(s.song_title)+'</div>'
       +'<div style="font-size:11px;color:var(--gold-dim);margin-top:1px">'+escHtml(s.file_name)+'</div>';
+    // ★ 수정 버튼
+    var eBtn=document.createElement('button');
+    eBtn.textContent='✎';
+    eBtn.style.cssText='background:rgba(201,168,76,.18);border:1px solid rgba(201,168,76,.35);color:var(--gold);border-radius:7px;font-size:14px;padding:5px 10px;cursor:pointer;flex-shrink:0';
+    (function(score){ eBtn.addEventListener('click',function(){ openEditScoreDialog(score); }); })(s);
     var dBtn=document.createElement('button');
     dBtn.textContent='🗑';
     dBtn.style.cssText='background:rgba(200,70,70,.18);border:1px solid rgba(200,70,70,.35);color:#e07070;border-radius:7px;font-size:12px;padding:5px 9px;cursor:pointer;flex-shrink:0';
     (function(fname,stitle){ dBtn.addEventListener('click',function(){ askDeleteScore(fname,stitle); }); })(s.file_name,s.song_title);
-    row.appendChild(info); row.appendChild(dBtn); body.appendChild(row);
+    row.appendChild(info); row.appendChild(eBtn); row.appendChild(dBtn); body.appendChild(row);
   });
 }
+// ★ 악보 정보 수정 — 다이얼로그 열기/닫기/저장
+var _editingScoreFileName = null;
+
+function openEditScoreDialog(score){
+  if(!score) return;
+  _editingScoreFileName = score.file_name;
+  document.getElementById('edit-song-title').value = score.song_title || '';
+  document.getElementById('edit-file-name').value  = score.file_name || '';
+  document.getElementById('edit-file-url').value   = score.file_url || '';
+  document.getElementById('edit-score-dialog').style.display = 'flex';
+}
+
+function closeEditScoreDialog(){
+  _editingScoreFileName = null;
+  document.getElementById('edit-score-dialog').style.display = 'none';
+}
+
+async function confirmEditScore(){
+  if(!_editingScoreFileName){ closeEditScoreDialog(); return; }
+  var songTitle = document.getElementById('edit-song-title').value.trim();
+  var fileUrl   = document.getElementById('edit-file-url').value.trim();
+  if(!songTitle){ toast('곡 제목을 입력해 주세요.'); return; }
+  if(!fileUrl){ toast('파일 URL을 입력해 주세요.'); return; }
+
+  var btn = document.getElementById('edit-score-save-btn');
+  btn.disabled = true; btn.textContent = '저장 중...';
+  setLoading(true, '악보 정보 수정 중...');
+
+  try{
+    var r = await gas('adminUpdateSong', {
+      file_name : _editingScoreFileName,
+      song_title: songTitle,
+      file_url  : fileUrl,
+    });
+    if(!r.ok){ toast(r.message || '수정 실패'); return; }
+    toast('✓ ' + (r.message || '수정 완료'));
+
+    // 캐시 무효화 후 목록 새로고침
+    _scoreListCache = [];
+    if(typeof _adminScoreCache !== 'undefined') _adminScoreCache = null;
+    closeEditScoreDialog();
+    await loadScoreList();
+  }catch(e){
+    toast('오류: ' + e.message);
+  }finally{
+    setLoading(false);
+    btn.disabled = false; btn.textContent = '저장';
+  }
+}
+
 function askDeleteScore(fileName,title){
   pendingDeleteScore=fileName;
   document.getElementById('confirm-dialog').querySelector('h3').textContent='삭제 확인';
