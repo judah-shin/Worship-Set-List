@@ -1393,33 +1393,11 @@ function toggleFullview(){
 
 // 토스트 없이 조용히 저장 — 악보 원본 좌표계(zoom=1 기준)로 정규화
 function _saveAnnotationSilent(){
-  var aCanvas = document.getElementById('annotation-canvas');
-  var key     = annotKey();
-  if(!key || !aCanvas || aCanvas.width === 0) return;
-
-  var tr = _getScoreTransform();
-  if(tr.scoreW0 <= 0 || tr.scoreH0 <= 0) return;
-
-  // 오프스크린 canvas에 악보 원본 좌표계(zoom=1)로 정규화
-  var off = document.createElement('canvas');
-  off.width  = Math.round(tr.scoreW0);
-  off.height = Math.round(tr.scoreH0);
-  var offCtx = off.getContext('2d');
-  // aCanvas의 악보 물리 픽셀 영역 → off에 1:1 원본 크기로 추출
-  offCtx.drawImage(aCanvas,
-    tr.left_px, tr.top_px,           // 소스 시작 (물리 px)
-    tr.scoreW * getZoom(), tr.scoreH * getZoom(), // 소스 크기 (물리 px)
-    0, 0, off.width, off.height       // 대상 (악보 원본 크기)
-  );
-
-  var payload = {
-    dataUrl   : off.toDataURL('image/png'),
-    scoreW0   : off.width,
-    scoreH0   : off.height,
-    normalized: true
-  };
-  try{ localStorage.setItem(key, JSON.stringify(payload)); }catch(e){}
+  // ★ 벡터 방식에서는 zoom/보기모드와 무관하게 좌표가 고정이므로
+  //   전환 직전에 별도 재계산 없이 대기 중인 저장만 마무리하면 된다
+  _flushSaveAnnotation();
 }
+
 function exitFullview(){
   if(!isFullview) return;
   _saveAnnotationSilent();
@@ -2171,6 +2149,11 @@ function setupGestures(){
     var t=e.changedTouches[0], dx=t.clientX-sx, dy=t.clientY-sy;
     var dist=Math.sqrt(dx*dx+dy*dy), now=Date.now();
 
+    // ★ 펜 모드에서 Apple Pencil 입력은 화면 전환 제스처로 해석하지 않는다
+    //   (필기 중 더블탭으로 전체보기가 켜졌다 꺼지는 문제 방지)
+    //   손가락 조작은 그대로 동작하므로 기존 사용법에 영향 없음
+    if(penState.active && t.touchType === 'stylus') return;
+
     // ── 전체보기 중: 1-finger 좌우 스와이프 → 곡 이동
     if(isFullview){
       if(Math.abs(dx)>Math.abs(dy) && Math.abs(dx)>50){
@@ -2401,6 +2384,132 @@ var undoStack    = [];
 var redoStack    = [];
 var MAX_UNDO     = 30;
 
+// ══════════════════════════════════════════════
+//  ★ 벡터 필기 엔진 (v2)
+//  필기를 PNG가 아니라 "획(stroke) 좌표 배열"로 보관한다.
+//
+//  좌표계 — 악보 가로폭을 1000 단위로 정규화한 공간
+//    · 일반보기 / 전체보기 / zoom 배율에 무관하게 같은 좌표를 유지
+//    · 화면이 바뀌면 다시 "그리기"만 하므로 확대해도 선명하고
+//      반복 전환해도 굵기·위치가 변형되지 않는다
+//    · toDataURL을 쓰지 않으므로 획 사이 지연이 발생하지 않는다
+// ══════════════════════════════════════════════
+var annotStrokes       = [];    // [{color,size,eraser,k,pts:[{x,y,p}]}]
+var annotLegacyDataUrl = null;  // 구버전 PNG 필기 (하위 호환)
+var annotLegacyImg     = null;
+var annotLegacyW       = 0;
+var annotLegacyH       = 0;
+var _annotLoadedKey    = null;  // 현재 메모리에 올라온 악보 키
+
+/** 필기용 변환 정보 — 정규화 단위(1000) ↔ canvas 물리 픽셀 */
+function _annotTr(){
+  var tr      = _getScoreTransform();
+  var cssZoom = getZoom();
+  var scoreWpx = tr.scoreW * cssZoom;              // 악보의 물리 픽셀 가로폭
+  var U = scoreWpx > 0 ? scoreWpx / 1000 : 0;      // 1단위당 물리 px
+  return {
+    U   : U,
+    left: tr.left_px,
+    top : tr.top_px,
+    k   : tr.scoreW0 > 0 ? 1000 / tr.scoreW0 : 0,  // 원본 px → 단위 환산 계수
+    ok  : U > 0
+  };
+}
+
+/** 필압 → 선 굵기 (원본 좌표 기준, 기존 로직 그대로) */
+function _annotPressureWidth(pressure, baseSize){
+  var p = Math.pow(Math.max(0.05, pressure), 0.4);
+  return Math.max(0.8, baseSize * p * 2.2);
+}
+
+/** Catmull-Rom 곡선 한 구간 그리기 */
+function _annotCurve(ctx, p0, p1, p2, p3, lineW){
+  ctx.beginPath(); ctx.moveTo(p1.x, p1.y);
+  for(var i=1; i<=12; i++){
+    var s=i/12, s2=s*s, s3=s2*s;
+    var x=0.5*((2*p1.x)+(-p0.x+p2.x)*s+(2*p0.x-5*p1.x+4*p2.x-p3.x)*s2+(-p0.x+3*p1.x-3*p2.x+p3.x)*s3);
+    var y=0.5*((2*p1.y)+(-p0.y+p2.y)*s+(2*p0.y-5*p1.y+4*p2.y-p3.y)*s2+(-p0.y+3*p1.y-3*p2.y+p3.y)*s3);
+    ctx.lineTo(x, y);
+  }
+  ctx.lineWidth=lineW; ctx.lineCap='round'; ctx.lineJoin='round'; ctx.stroke();
+}
+
+/** 획 하나를 현재 transform 위에 그리기 (실시간 필기와 동일한 결과) */
+function _annotRenderStroke(ctx, st){
+  if(!st || !st.pts || st.pts.length === 0) return;
+  var k   = st.k || 1;
+  var pts = st.pts;
+
+  if(st.eraser){
+    ctx.globalCompositeOperation='destination-out';
+    ctx.strokeStyle='rgba(0,0,0,1)';
+    ctx.fillStyle='rgba(0,0,0,1)';
+  } else {
+    ctx.globalCompositeOperation='source-over';
+    ctx.strokeStyle=st.color;
+    ctx.fillStyle=st.color;
+  }
+
+  // 시작점 — 실시간 startDraw와 동일하게 원점 찍기
+  if(!st.eraser){
+    var r0 = Math.max(0.8, st.size * 0.6) * k;
+    ctx.beginPath(); ctx.arc(pts[0].x, pts[0].y, r0, 0, Math.PI*2); ctx.fill();
+  }
+
+  if(pts.length === 1){
+    // 점 하나 — 실시간 endDraw의 단독 탭 처리와 동일
+    var r = (st.eraser ? st.size*2.5 : Math.max(1, st.size*0.7)) * k;
+    ctx.beginPath(); ctx.arc(pts[0].x, pts[0].y, r, 0, Math.PI*2); ctx.fill();
+    ctx.globalCompositeOperation='source-over';
+    return;
+  }
+
+  // 실시간 필기와 같은 4점 슬라이딩 윈도우로 재현
+  var buf=[pts[0],pts[0],pts[0],pts[0]];
+  for(var i=1;i<pts.length;i++){
+    buf.push(pts[i]); if(buf.length>4) buf.shift();
+    var p0=buf[0],p1=buf[1],p2=buf[2],p3=buf[3];
+    if(st.eraser){
+      ctx.beginPath(); ctx.moveTo(p1.x,p1.y); ctx.lineTo(p2.x,p2.y);
+      ctx.lineWidth=st.size*4*k; ctx.lineCap='round'; ctx.stroke();
+    } else {
+      var dx=p2.x-p1.x, dy=p2.y-p1.y;
+      var speed=Math.sqrt(dx*dx+dy*dy)/ (k||1);          // 원본 좌표 기준 속도
+      var speedFactor=Math.max(0.4, 1.0 - Math.min(speed,60)/120);
+      var avgP=(p1.p+p2.p)/2;
+      _annotCurve(ctx,p0,p1,p2,p3, _annotPressureWidth(avgP*speedFactor, st.size)*k);
+    }
+  }
+  ctx.globalCompositeOperation='source-over';
+}
+
+/** ★ 전체 필기를 현재 zoom/pan/보기모드에 맞춰 다시 그리기 (동기, 즉시) */
+function redrawStrokes(){
+  var aCanvas=document.getElementById('annotation-canvas');
+  if(!aCanvas || aCanvas.width===0) return;
+  var ctx=aCanvas.getContext('2d');
+
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.globalCompositeOperation='source-over';
+  ctx.clearRect(0,0,aCanvas.width,aCanvas.height);
+
+  var t=_annotTr();
+  if(!t.ok) return;
+
+  ctx.save();
+  ctx.setTransform(t.U,0,0,t.U,t.left,t.top);
+
+  // 구버전 PNG 필기가 있으면 배경 레이어로 먼저
+  if(annotLegacyImg && annotLegacyW>0){
+    ctx.drawImage(annotLegacyImg, 0, 0, 1000, 1000*annotLegacyH/annotLegacyW);
+  }
+  for(var i=0;i<annotStrokes.length;i++) _annotRenderStroke(ctx, annotStrokes[i]);
+
+  ctx.restore();
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.globalCompositeOperation='source-over';
+}
+
 function annotKey(){
   var song = S.viewerSongs[S.viewerIdx];
   if(!song) return null;
@@ -2492,44 +2601,37 @@ function setPenSize(v){ penState.size=parseInt(v); document.getElementById('pen-
 function toggleEraser(){ penState.isEraser=!penState.isEraser; document.getElementById('eraser-btn').classList.toggle('active',penState.isEraser); }
 
 function clearAnnotation(){
-  var aCanvas=document.getElementById('annotation-canvas');
-  var ctx=aCanvas.getContext('2d');
   pushUndoSnapshot();
-  ctx.clearRect(0,0,aCanvas.width,aCanvas.height);
+  annotStrokes       = [];
+  annotLegacyDataUrl = null;
+  annotLegacyImg     = null;
+  annotLegacyW = 0; annotLegacyH = 0;
+  redrawStrokes();
   var key=annotKey();
   if(key){ try{localStorage.removeItem(key);}catch(e){} }
+  _annotationDirty = false;
   updateUndoUI();
 }
 
+// ★ undo 스택도 벡터 배열 스냅샷으로 전환 — toDataURL 제거로 지연 없음
 function pushUndoSnapshot(){
-  var aCanvas=document.getElementById('annotation-canvas');
-  if(!aCanvas||aCanvas.width===0) return;
-  try{
-    var snap=aCanvas.toDataURL('image/png');
-    undoStack.push(snap);
-    if(undoStack.length>MAX_UNDO) undoStack.shift();
-    redoStack=[];
-    updateUndoUI();
-  }catch(e){}
+  undoStack.push(annotStrokes.slice());
+  if(undoStack.length>MAX_UNDO) undoStack.shift();
+  redoStack=[];
+  updateUndoUI();
 }
 function undoAnnotation(){
   if(undoStack.length===0){toast('더 이상 되돌릴 수 없습니다.');return;}
-  var aCanvas=document.getElementById('annotation-canvas');
-  var ctx=aCanvas.getContext('2d');
-  try{redoStack.push(aCanvas.toDataURL('image/png'));}catch(e){}
-  var snap=undoStack.pop();
-  ctx.clearRect(0,0,aCanvas.width,aCanvas.height);
-  var img=new Image(); img.onload=function(){ctx.drawImage(img,0,0);}; img.src=snap;
+  redoStack.push(annotStrokes.slice());
+  annotStrokes = undoStack.pop();
+  redrawStrokes();
   updateUndoUI(); saveAnnotation();
 }
 function redoAnnotation(){
   if(redoStack.length===0){toast('다시 실행할 내용이 없습니다.');return;}
-  var aCanvas=document.getElementById('annotation-canvas');
-  var ctx=aCanvas.getContext('2d');
-  try{undoStack.push(aCanvas.toDataURL('image/png'));}catch(e){}
-  var snap=redoStack.pop();
-  ctx.clearRect(0,0,aCanvas.width,aCanvas.height);
-  var img=new Image(); img.onload=function(){ctx.drawImage(img,0,0);}; img.src=snap;
+  undoStack.push(annotStrokes.slice());
+  annotStrokes = redoStack.pop();
+  redrawStrokes();
   updateUndoUI(); saveAnnotation();
 }
 function resetUndoStack(){ undoStack=[]; redoStack=[]; updateUndoUI(); }
@@ -2539,38 +2641,61 @@ function updateUndoUI(){
   if(r) r.style.opacity=redoStack.length>0?'1':'0.35';
 }
 
+// 필기 변경 추적 — 모드 전환만으로는 저장하지 않도록
+var _annotationDirty   = false;
+var _saveDebounceTimer = null;
+var _pendingSaveKey    = null;
+
 function saveAnnotation(){
-  var aCanvas = document.getElementById('annotation-canvas');
-  var key     = annotKey();
-  if(!key){ toast('저장할 악보가 없습니다.'); return; }
+  _annotationDirty = true;
+  _pendingSaveKey  = annotKey();   // 예약 시점 키 고정 (곡 이동 중 오저장 방지)
+  if(_saveDebounceTimer) clearTimeout(_saveDebounceTimer);
+  _saveDebounceTimer = setTimeout(_doSaveAnnotation, 300);
+}
 
-  var tr = _getScoreTransform();
-  if(tr.scoreW0 <= 0 || tr.scoreH0 <= 0){ toast('저장할 악보가 없습니다.'); return; }
+/** 대기 중인 저장을 즉시 실행 */
+function _flushSaveAnnotation(){
+  if(_saveDebounceTimer){
+    clearTimeout(_saveDebounceTimer);
+    _saveDebounceTimer = null;
+    _doSaveAnnotation();
+  }
+}
 
-  var off = document.createElement('canvas');
-  off.width  = Math.round(tr.scoreW0);
-  off.height = Math.round(tr.scoreH0);
-  var offCtx = off.getContext('2d');
-  offCtx.drawImage(aCanvas,
-    tr.left_px, tr.top_px,
-    tr.scoreW * getZoom(), tr.scoreH * getZoom(),
-    0, 0, off.width, off.height
-  );
+/** ★ 벡터 저장 — toDataURL을 쓰지 않으므로 획 사이 지연이 없다 */
+function _doSaveAnnotation(){
+  _saveDebounceTimer = null;
+  var key = _pendingSaveKey || annotKey();
+  if(!key) return;
 
-  var payload = {
-    dataUrl   : off.toDataURL('image/png'),
-    scoreW0   : off.width,
-    scoreH0   : off.height,
-    normalized: true
-  };
+  var slim = annotStrokes.map(function(st){
+    return {
+      color : st.color,
+      size  : st.size,
+      eraser: !!st.eraser,
+      k     : Math.round((st.k||1)*10000)/10000,
+      pts   : st.pts.map(function(p){
+        return { x:Math.round(p.x*10)/10, y:Math.round(p.y*10)/10, p:Math.round(p.p*100)/100 };
+      })
+    };
+  });
+
+  var payload = { v:2, strokes: slim };
+  if(annotLegacyDataUrl){
+    payload.legacy  = annotLegacyDataUrl;
+    payload.legacyW = annotLegacyW;
+    payload.legacyH = annotLegacyH;
+  }
 
   try{
     localStorage.setItem(key, JSON.stringify(payload));
+    _annotationDirty = false;
     toast('✓ 필기 저장됨');
   }catch(e){
     cleanOldAnnotations();
     try{
       localStorage.setItem(key, JSON.stringify(payload));
+      _annotationDirty = false;
       toast('✓ 필기 저장됨 (오래된 필기 일부 삭제)');
     }catch(e2){ toast('저장 실패 (용량 부족): ' + e2.message); }
   }
@@ -2586,60 +2711,62 @@ function _getScoreElement(){
 }
 function loadAnnotation(){
   var aCanvas = document.getElementById('annotation-canvas');
-  var ctx     = aCanvas.getContext('2d');
+  if(!aCanvas) return;
+  var key = annotKey();
 
-  ctx.clearRect(0, 0, aCanvas.width, aCanvas.height);
+  // ★ 같은 악보/페이지면 저장소를 다시 읽지 않고 "다시 그리기"만 한다
+  //   → zoom / pan / 전체보기 전환 시 메모리의 획이 그대로 유지되므로
+  //     applyZoom, renderPdfPage, toggleFullview 등 기존 호출부를 고칠 필요가 없다
+  if(key && key === _annotLoadedKey){
+    redrawStrokes();
+    return;
+  }
+
+  // 다른 악보로 이동 — 이전 악보의 대기 중 저장을 먼저 마무리
+  _flushSaveAnnotation();
+
+  annotStrokes       = [];
+  annotLegacyDataUrl = null;
+  annotLegacyImg     = null;
+  annotLegacyW = 0; annotLegacyH = 0;
+  _annotationDirty   = false;
+  _annotLoadedKey    = key;
   resetUndoStack();
 
-  var key = annotKey();
+  var ctx = aCanvas.getContext('2d');
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.globalCompositeOperation='source-over';
+  ctx.clearRect(0,0,aCanvas.width,aCanvas.height);
+
   if(!key) return;
 
   try{
     var raw = localStorage.getItem(key);
     if(!raw) return;
 
-    var payload;
-    if(raw.charAt(0) === '{'){
-      payload = JSON.parse(raw);
-    } else {
-      payload = { dataUrl: raw, scoreW0: aCanvas.width, scoreH0: aCanvas.height, normalized: false };
-    }
+    var payload = (raw.charAt(0)==='{') ? JSON.parse(raw) : { dataUrl: raw };
 
-    var dataUrl = payload.dataUrl;
-    if(!dataUrl) return;
-
-    var img = new Image();
-    img.onload = function(){
-      ctx.clearRect(0, 0, aCanvas.width, aCanvas.height);
-
-      if(payload.normalized){
-        // ★ 악보 원본 좌표계 저장본 복원
-        // 저장 시 scoreW0 × scoreH0 이미지를 현재 zoom/pan 위치에 맞게 그리기
-        var tr = _getScoreTransform();
-        var savedW0 = payload.scoreW0 || payload.scoreW || tr.scoreW0;
-        var savedH0 = payload.scoreH0 || payload.scoreH || tr.scoreH0;
-
-        // 저장 당시 원본 크기와 현재 원본 크기 비율 (악보 자체 크기가 달라진 경우 대비)
-        var scaleX = (tr.scoreW0 > 0) ? tr.scoreW0 / savedW0 : 1;
-        var scaleY = (tr.scoreH0 > 0) ? tr.scoreH0 / savedH0 : 1;
-
-        // 현재 zoom/pan에 맞게 transform 적용하여 복원
-        ctx.save();
-        ctx.translate(tr.left_px, tr.top_px);
-        ctx.scale(tr.totalScale * scaleX, tr.totalScale * scaleY);
-        ctx.drawImage(img, 0, 0, savedW0, savedH0);
-        ctx.restore();
-      } else {
-        // 구버전 호환
-        var tr2 = _getScoreTransform();
-        ctx.save();
-        ctx.translate(tr2.left_px, tr2.top_px);
-        ctx.scale(tr2.totalScale, tr2.totalScale);
-        ctx.drawImage(img, 0, 0, tr2.scoreW0, tr2.scoreH0);
-        ctx.restore();
+    if(payload.v === 2 && payload.strokes){
+      // ── 벡터 저장본 ──
+      annotStrokes = payload.strokes;
+      if(payload.legacy){
+        annotLegacyDataUrl = payload.legacy;
+        annotLegacyW = payload.legacyW || 1000;
+        annotLegacyH = payload.legacyH || 1000;
+        var li = new Image();
+        li.onload = function(){ annotLegacyImg = li; redrawStrokes(); };
+        li.src = annotLegacyDataUrl;
       }
-    };
-    img.src = dataUrl;
+      redrawStrokes();
+    } else if(payload.dataUrl){
+      // ── 구버전 PNG 저장본 → 배경 레이어로 편입 (기존 필기 보존) ──
+      annotLegacyDataUrl = payload.dataUrl;
+      annotLegacyW = payload.scoreW0 || payload.scoreW || 1000;
+      annotLegacyH = payload.scoreH0 || payload.scoreH || 1000;
+      var im = new Image();
+      im.onload = function(){ annotLegacyImg = im; redrawStrokes(); };
+      im.src = payload.dataUrl;
+    }
   }catch(e){}
 }
 function cleanOldAnnotations(){
@@ -2653,6 +2780,7 @@ function cleanOldAnnotations(){
 function setupAnnotationCanvas(){
   var aCanvas=document.getElementById('annotation-canvas');
   var ptBuf=[];
+  var curStroke=null;   // ★ 현재 그리는 중인 획
 
   // ctx 캐싱
   var ctx = aCanvas.getContext('2d');
@@ -2679,26 +2807,22 @@ function setupAnnotationCanvas(){
   function getPos(e){
     var rect = aCanvas.getBoundingClientRect();
     var cssZoom = getZoom();
-    var tr = _getScoreTransform();
-
-    // canvas CSS 좌표 (getBoundingClientRect 기준)
-    var canvasX = e.clientX - rect.left;
-    var canvasY = e.clientY - rect.top;
+    var t = _annotTr();
 
     // canvas 물리 픽셀 좌표
-    var physX = canvasX * cssZoom;
-    var physY = canvasY * cssZoom;
+    var physX = (e.clientX - rect.left) * cssZoom;
+    var physY = (e.clientY - rect.top)  * cssZoom;
 
-    // 악보 원본 좌표계로 변환
-    var imgX = (physX - tr.left_px) / tr.totalScale;
-    var imgY = (physY - tr.top_px)  / tr.totalScale;
+    // ★ 정규화 단위 좌표(악보 가로폭 = 1000)로 변환
+    //   zoom / pan / 일반·전체보기에 무관하게 동일한 값이 나온다
+    var ux = t.ok ? (physX - t.left) / t.U : 0;
+    var uy = t.ok ? (physY - t.top ) / t.U : 0;
 
-    return { x: imgX, y: imgY, p: (e.pressure > 0 && e.pressure <= 1) ? e.pressure : 0.5 };
+    return { x: ux, y: uy, p: (e.pressure > 0 && e.pressure <= 1) ? e.pressure : 0.5 };
   }
 
   function pressureToWidth(pressure, baseSize){
-    var p = Math.pow(Math.max(0.05, pressure), 0.4);
-    return Math.max(0.8, baseSize * p * 2.2);
+    return _annotPressureWidth(pressure, baseSize);
   }
 
   /**
@@ -2706,22 +2830,17 @@ function setupAnnotationCanvas(){
    * 원본 좌표로 그리면 자동으로 현재 zoom/pan 위치에 렌더링됨
    */
   function applyScoreTransform(){
-    var tr = _getScoreTransform();
-    ctx.setTransform(tr.totalScale, 0, 0, tr.totalScale, tr.left_px, tr.top_px);
+    var t = _annotTr();
+    ctx.setTransform(t.U, 0, 0, t.U, t.left, t.top);
   }
+  // 현재 악보 기준 "원본 px → 단위" 환산 계수
+  function unitK(){ return _annotTr().k || 1; }
   function resetTransform(){
     ctx.setTransform(1, 0, 0, 1, 0, 0);
   }
 
   function drawCatmullRom(p0, p1, p2, p3, lineW){
-    ctx.beginPath(); ctx.moveTo(p1.x, p1.y);
-    for(var i=1; i<=12; i++){
-      var s=i/12, s2=s*s, s3=s2*s;
-      var x=0.5*((2*p1.x)+(-p0.x+p2.x)*s+(2*p0.x-5*p1.x+4*p2.x-p3.x)*s2+(-p0.x+3*p1.x-3*p2.x+p3.x)*s3);
-      var y=0.5*((2*p1.y)+(-p0.y+p2.y)*s+(2*p0.y-5*p1.y+4*p2.y-p3.y)*s2+(-p0.y+3*p1.y-3*p2.y+p3.y)*s3);
-      ctx.lineTo(x, y);
-    }
-    ctx.lineWidth = lineW; ctx.lineCap='round'; ctx.lineJoin='round'; ctx.stroke();
+    _annotCurve(ctx, p0, p1, p2, p3, lineW);
   }
 
   function startDraw(e){
@@ -2736,9 +2855,18 @@ function setupAnnotationCanvas(){
     penState.lastX=pos.x; penState.lastY=pos.y;
     ptBuf=[pos,pos,pos,pos];
 
+    // ★ 새 획 기록 시작 — k는 이 획을 그릴 때의 "원본 px → 단위" 환산 계수
+    curStroke = {
+      color : penState.color,
+      size  : penState.size,
+      eraser: !!penState.isEraser,
+      k     : unitK(),
+      pts   : [pos]
+    };
+
     if(!penState.isStickerMode && !penState.isEraser){
       applyScoreTransform();
-      var r0 = Math.max(0.8, penState.size * 0.6);
+      var r0 = Math.max(0.8, penState.size * 0.6) * curStroke.k;
       ctx.beginPath(); ctx.arc(pos.x, pos.y, r0, 0, Math.PI*2);
       ctx.globalCompositeOperation='source-over'; ctx.fillStyle=penState.color; ctx.fill();
       resetTransform();
@@ -2752,11 +2880,14 @@ function setupAnnotationCanvas(){
     penState.hasMoved=true;
 
     var pos = getPos(e); ptBuf.push(pos);
+    if(curStroke) curStroke.pts.push(pos);          // ★ 점 기록
     while(ptBuf.length < 4) ptBuf.unshift(ptBuf[0]);
     if(ptBuf.length > 4) ptBuf.shift();
 
+    var k = curStroke ? curStroke.k : unitK();
     var p0=ptBuf[0], p1=ptBuf[1], p2=ptBuf[2], p3=ptBuf[3];
-    var dx=p2.x-p1.x, dy=p2.y-p1.y, speed=Math.sqrt(dx*dx+dy*dy);
+    var dx=p2.x-p1.x, dy=p2.y-p1.y;
+    var speed=Math.sqrt(dx*dx+dy*dy)/(k||1);        // 원본 px 기준 속도 (기존 감도 유지)
     var speedFactor = Math.max(0.4, 1.0 - Math.min(speed,60)/120);
     var avgPressure = (p1.p+p2.p)/2;
 
@@ -2764,11 +2895,11 @@ function setupAnnotationCanvas(){
     if(penState.isEraser){
       ctx.globalCompositeOperation='destination-out'; ctx.strokeStyle='rgba(0,0,0,1)';
       ctx.beginPath(); ctx.moveTo(p1.x,p1.y); ctx.lineTo(p2.x,p2.y);
-      ctx.lineWidth=penState.size*4; ctx.lineCap='round'; ctx.stroke();
+      ctx.lineWidth=penState.size*4*k; ctx.lineCap='round'; ctx.stroke();
       ctx.globalCompositeOperation='source-over';
     } else {
       ctx.globalCompositeOperation='source-over'; ctx.strokeStyle=penState.color;
-      drawCatmullRom(p0,p1,p2,p3, pressureToWidth(avgPressure*speedFactor, penState.size));
+      drawCatmullRom(p0,p1,p2,p3, pressureToWidth(avgPressure*speedFactor, penState.size)*k);
     }
     resetTransform();
     penState.lastX=pos.x; penState.lastY=pos.y;
@@ -2787,9 +2918,10 @@ function setupAnnotationCanvas(){
     if(rafId){ cancelAnimationFrame(rafId); rafId=null; flushDraw(); }
     penState.drawing=false; ptBuf=[];
 
+    var kEnd = curStroke ? curStroke.k : unitK();
     if(!penState.hasMoved && !penState.isStickerMode){
       var pos2 = getPos(e);
-      var r = penState.isEraser ? penState.size*2.5 : Math.max(1, penState.size*0.7);
+      var r = (penState.isEraser ? penState.size*2.5 : Math.max(1, penState.size*0.7)) * kEnd;
       applyScoreTransform();
       ctx.beginPath(); ctx.arc(pos2.x, pos2.y, r, 0, Math.PI*2);
       if(penState.isEraser){ ctx.globalCompositeOperation='destination-out'; ctx.fillStyle='rgba(0,0,0,1)'; }
@@ -2797,7 +2929,14 @@ function setupAnnotationCanvas(){
       ctx.fill(); ctx.globalCompositeOperation='source-over';
       resetTransform();
     }
-    if(penState.active){ pushUndoSnapshot(); saveAnnotation(); }
+
+    // ★ 획 확정 — undo 스냅샷은 "획 추가 전" 상태로 저장해야 한다
+    if(penState.active && curStroke && curStroke.pts.length > 0 && !penState.isStickerMode){
+      pushUndoSnapshot();
+      annotStrokes.push(curStroke);
+      saveAnnotation();
+    }
+    curStroke = null;
   }
 
   // ★ pointermove: {passive:false} + touch-action:none (pen 활성 시 syncAnnotationCanvasSize에서 적용)
