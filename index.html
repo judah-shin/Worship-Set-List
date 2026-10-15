@@ -360,6 +360,13 @@ html, body { touch-action: manipulation; }
 /* VIEWER
 ══════════════════════════════════════ */
 #screen-viewer { background: #080808; padding-bottom: 0; }
+/* ★ 펜슬 필기 중 손바닥이 닿아도 글자 선택(복사하기·찾아보기 메뉴)이 뜨지 않도록 뷰어 전체 선택 차단 */
+#screen-viewer, #screen-viewer * {
+  -webkit-user-select: none; user-select: none;
+  -webkit-touch-callout: none;
+}
+/* 스티커 글자 편집 중에는 입력이 되도록 예외 */
+#screen-viewer [contenteditable="true"] { -webkit-user-select: text; user-select: text; }
 
 .viewer-header {
   background: rgba(8,8,8,.93); backdrop-filter: blur(16px);
@@ -3181,6 +3188,16 @@ function setupOrientationHandler(){
     clearTimeout(resizeTimer);
     resizeTimer=setTimeout(onOrientationChange,100);
     _relayoutViewerWhenStable();   // ★ 늦게 도착하는 화면 크기 변화에도 다시 맞춤
+  });
+
+  // ★ 뷰어에서 손바닥 길게 누르기로 생기는 글자 선택·길게 누르기 메뉴 차단 (스티커 편집 중 글자는 예외)
+  var viewerEl=document.getElementById('screen-viewer');
+  ['selectstart','contextmenu'].forEach(function(ev){
+    viewerEl.addEventListener(ev,function(e){
+      var t=e.target&&e.target.nodeType===3?e.target.parentElement:e.target;   // 글자(텍스트 노드)면 감싸는 요소 기준
+      if(t&&t.closest&&t.closest('[contenteditable="true"],input,textarea')) return;
+      e.preventDefault();
+    },{passive:false});
   });
 
   // ★ Safari 화면 확대(두 손가락 오므리기/펴기) 차단 — 악보 확대는 setupGestures가 터치 이벤트로 처리하므로 영향 없음
