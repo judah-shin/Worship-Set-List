@@ -229,6 +229,12 @@ html, body { touch-action: manipulation; }
 .view-btn-sm:hover { background: var(--gold-light); }
 .del-btn-sm { background: rgba(200,70,70,.18); border: 1px solid rgba(200,70,70,.35); color: #e07070; border-radius: 7px; font-size: 12px; font-weight: 700; padding: 6px 10px; cursor: pointer; white-space: nowrap; transition: var(--trans); }
 .del-btn-sm:hover { background: rgba(200,70,70,.32); }
+/* ★ Set List 수정 버튼 / 수정 창 입력칸 */
+.edit-btn-sm { background: rgba(201,168,76,.18); border: 1px solid rgba(201,168,76,.35); color: var(--gold); border-radius: 7px; font-size: 13px; font-weight: 700; padding: 6px 10px; cursor: pointer; white-space: nowrap; transition: var(--trans); }
+.edit-btn-sm:hover { background: rgba(201,168,76,.3); }
+.setedit-field { text-align: left; margin: 10px 0; }
+.setedit-field label { display: block; font-size: 13px; color: var(--gold-dim); margin-bottom: 5px; }
+.setedit-field input { width: 100%; min-height: 44px; padding: 0 12px; background: rgba(255,255,255,.06); border: 1.5px solid rgba(201,168,76,.3); border-radius: 9px; color: var(--cream); font-size: 16px; font-family: 'Noto Sans KR', sans-serif; outline: none; color-scheme: dark; }
 .no-setlist-msg { font-size: 13px; color: var(--gold-dim); text-align: center; padding: 10px 0; }
 
 /* ══════════════════════════════════════
@@ -1081,12 +1087,13 @@ html, body { touch-action: manipulation; }
       <input type="search" class="stats-search" id="stats-search" placeholder="🔍 곡 제목 검색" aria-label="곡 제목 검색"
              oninput="onStatsSearch()" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
       <div class="stats-tabs" role="tablist" aria-label="통계 기간 선택">
-        <button class="stats-tab active" role="tab" aria-selected="true"  onclick="switchStatsPeriod(1)">1개월</button>
-        <button class="stats-tab"        role="tab" aria-selected="false" onclick="switchStatsPeriod(3)">3개월</button>
-        <button class="stats-tab"        role="tab" aria-selected="false" onclick="switchStatsPeriod(6)">6개월</button>
+        <button class="stats-tab active" role="tab" aria-selected="true"  data-period="1"      onclick="switchStatsPeriod(1)">1개월</button>
+        <button class="stats-tab"        role="tab" aria-selected="false" data-period="3"      onclick="switchStatsPeriod(3)">3개월</button>
+        <button class="stats-tab"        role="tab" aria-selected="false" data-period="6"      onclick="switchStatsPeriod(6)">6개월</button>
+        <button class="stats-tab"        role="tab" aria-selected="false" data-period="unused" onclick="switchStatsPeriod('unused')">안 부른 곡</button>
       </div>
       <p class="stats-range" id="stats-range"></p>
-      <p class="stats-sort-note">적게 부른 곡 → 오래전에 부른 곡 순서</p>
+      <p class="stats-sort-note" id="stats-sort-note">적게 부른 곡 → 오래전에 부른 곡 순서</p>
       <div id="stats-list" role="list"></div>
       <button class="stats-more" id="stats-more" onclick="showMoreStats()" style="display:none">더 보기</button>
     </div>
@@ -1613,6 +1620,9 @@ async function viewCalSelect(ds){
       (function(songs,gt){ vBtn.addEventListener('click',function(){ openViewer(songs,gt,'view-calendar'); }); })(g.songs,g.group_title);
       btns.appendChild(vBtn);
       if(currentRole==='admin'){
+        var eBtn=document.createElement('button'); eBtn.className='edit-btn-sm'; eBtn.textContent='✎'; eBtn.setAttribute('aria-label','Set List 제목·날짜 수정');
+        (function(sid,date,gt){ eBtn.addEventListener('click',function(){ askEditSetList(sid,date,gt); }); })(g.set_id,ds,g.group_title);
+        btns.appendChild(eBtn);
         var dBtn=document.createElement('button'); dBtn.className='del-btn-sm'; dBtn.textContent='🗑';
         (function(sid,date,gt){ dBtn.addEventListener('click',function(){ askDelete(sid,date,gt); }); })(g.set_id,ds,g.group_title);
         btns.appendChild(dBtn);
@@ -1625,6 +1635,41 @@ async function viewCalSelect(ds){
 // ══════════════════════════════════════════════
 //  DELETE
 // ══════════════════════════════════════════════
+// ★ Set List 제목·날짜 수정 (곡 구성은 그대로)
+var _editingSet=null;
+function askEditSetList(setId,date,title){
+  if(currentRole!=='admin'){toast('관리자만 수정할 수 있습니다.');return;}
+  _editingSet={id:setId,date:date};
+  document.getElementById('confirm-dialog').querySelector('h3').textContent='Set List 수정';
+  document.getElementById('confirm-ok-btn').textContent='저장';
+  document.getElementById('confirm-msg').innerHTML=
+     '<div class="setedit-field"><label for="setedit-title">Set List 제목</label><input type="text" id="setedit-title" maxlength="60"/></div>'
+    +'<div class="setedit-field"><label for="setedit-date">예배 날짜</label><input type="date" id="setedit-date"/></div>'
+    +'<small style="color:var(--gold-dim)">곡 구성과 순서는 그대로 유지됩니다.</small>';
+  document.getElementById('setedit-title').value=title;
+  document.getElementById('setedit-date').value=date;
+  document.getElementById('confirm-ok-btn').onclick=doEditSetList;
+  document.getElementById('confirm-dialog').classList.add('show');
+}
+async function doEditSetList(){
+  if(!_editingSet){closeConfirm();return;}
+  var title=document.getElementById('setedit-title').value.trim();
+  var date=document.getElementById('setedit-date').value;
+  if(!title){toast('Set List 제목을 입력하세요.');return;}
+  if(!date){toast('예배 날짜를 선택하세요.');return;}
+  var info=_editingSet; closeConfirm();
+  setLoading(true,'저장 중...');
+  try{
+    var r=await gas('updateSetList',{set_id:info.id,group_title:title,worship_date:date});
+    if(!r.ok) throw new Error(r.message);
+    toast(date!==info.date ? '✓ '+date+'(으)로 옮겼습니다' : '✓ 수정했습니다');
+    // 옮긴 날짜가 있는 달로 캘린더 이동 후 그 날짜 표시
+    var p=date.split('-'); S.viewCalY=+p[0]; S.viewCalM=+p[1];
+    renderViewCal(); await loadViewCalDots(); viewCalSelect(date);
+  }catch(e){toast('수정 실패: '+e.message);}
+  finally{setLoading(false); _editingSet=null;}
+}
+
 function askDelete(setId,date,title){
   if(currentRole!=='admin'){toast('관리자만 삭제할 수 있습니다.');return;}
   pendingDeleteId=setId; pendingDeleteDate=date;
@@ -3697,7 +3742,7 @@ function showMoreStats(){ statsLimit+=30; renderStats(); }
 /** 기간 탭 활성 상태 동기화 */
 function _statsSyncTabs(months){
   document.querySelectorAll('.stats-tab').forEach(function(b){
-    var on=(b.textContent.trim()===months+'개월');
+    var on=(b.getAttribute('data-period')===String(months));
     b.classList.toggle('active',on);
     b.setAttribute('aria-selected',on?'true':'false');
   });
@@ -3723,8 +3768,37 @@ function _statsDaysAgo(from,to){
   return Math.max(0, Math.round((b-a)/86400000));
 }
 
+/** ★ 6개월간 한 번도 부르지 않은 곡 (팀에 등록된 악보 기준, 가나다순) */
+function renderUnusedStats(){
+  var box=document.getElementById('stats-list');
+  var more=document.getElementById('stats-more');
+  var from=_statsCutoff(6), to=statsData.today;
+  document.getElementById('stats-sort-note').textContent='등록된 악보 중 최근 6개월간 Set List에 없던 곡 · 가나다순';
+  var qEl=document.getElementById('stats-search');
+  var q=_statsNorm(qEl?qEl.value:'');
+  var list=(statsData.unused||[]).filter(function(s){ return !q || _statsNorm(s.title).indexOf(q)>=0; });
+  document.getElementById('stats-range').textContent=from+' ~ '+to+' · 총 '+list.length+'곡';
+  if(!list.length){
+    box.innerHTML='<p class="stats-empty">'+(q?'「'+escHtml(qEl.value.trim())+'」 곡은 최근 6개월 안에 부른 기록이 있거나 등록되지 않은 곡입니다.':'최근 6개월 동안 등록된 모든 곡을 한 번 이상 불렀습니다.')+'</p>';
+    more.style.display='none';
+    return;
+  }
+  box.innerHTML=list.slice(0,statsLimit).map(function(s,i){
+    return '<div class="stats-row" role="listitem">'
+      +   '<span class="stats-rank">'+(i+1)+'</span>'
+      +   '<div class="stats-info"><div class="stats-title">'+escHtml(s.title)+'</div>'
+      +     '<div class="stats-sub">최근 6개월간 부른 기록 없음</div></div>'
+      +   '<span class="stats-count">0회</span>'
+      + '</div>';
+  }).join('');
+  if(list.length>statsLimit){ more.style.display=''; more.textContent='더 보기 ('+(list.length-statsLimit)+'곡 남음)'; }
+  else more.style.display='none';
+}
+
 function renderStats(){
   if(!statsData) return;
+  if(statsPeriod==='unused'){ renderUnusedStats(); return; }
+  document.getElementById('stats-sort-note').textContent='적게 부른 곡 → 오래전에 부른 곡 순서';
   var from=_statsCutoff(statsPeriod), to=statsData.today;
 
   // 기간 내 사용 이력만 골라 다시 집계 (서버 재호출 없음)
