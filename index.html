@@ -747,6 +747,54 @@ html, body { touch-action: manipulation; }
   font-family: 'Noto Sans KR', sans-serif; font-size: 13px; cursor: pointer; transition: var(--trans);
 }
 .stats-more:hover { background: rgba(201,168,76,.16); }
+
+/* ══════════════════════════════════════
+   ★ 찬양팀 코드 입장 / 운영자 화면 / 코드 안내 창
+══════════════════════════════════════ */
+.gate-form { display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 320px; animation: fadeUp .9s .2s ease both; }
+.gate-label { font-size: 13px; color: var(--gold-light); text-align: center; }
+.code-field { position: relative; }
+.code-input {
+  width: 100%; min-height: 50px; padding: 0 52px 0 16px;
+  background: rgba(255,255,255,.06); border: 1.5px solid rgba(201,168,76,.35); border-radius: 12px;
+  color: var(--cream); font-family: 'Lato', monospace; font-size: 18px; letter-spacing: .08em; outline: none; text-align: center;
+}
+.code-input:focus { border-color: var(--gold); }
+.code-eye { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 44px; height: 44px; background: none; border: none; color: var(--gold-dim); font-size: 18px; cursor: pointer; }
+.gate-op-link { margin-top: 26px; font-size: 12px; color: var(--gold-dim); background: none; border: none; text-decoration: underline; cursor: pointer; min-height: 44px; }
+.gate-op-form { display: none; flex-direction: column; gap: 10px; width: 100%; max-width: 320px; margin-top: 6px; }
+.gate-op-form.show { display: flex; }
+
+.op-body { padding: 14px; display: flex; flex-direction: column; gap: 13px; }
+.op-section { background: rgba(201,168,76,.06); border: 1px solid rgba(201,168,76,.18); border-radius: var(--radius); padding: 14px; }
+.op-section h3 { font-size: 15px; color: var(--gold-light); margin-bottom: 10px; font-weight: 700; }
+.op-input { width: 100%; min-height: 44px; padding: 0 13px; margin-bottom: 8px; background: rgba(255,255,255,.06); border: 1.5px solid rgba(201,168,76,.25); border-radius: 10px; color: var(--cream); font-family: 'Noto Sans KR', sans-serif; font-size: 16px; outline: none; }
+.op-input:focus { border-color: var(--gold); }
+.op-preview { font-size: 13px; color: var(--gold-dim); margin: 2px 0 10px; }
+.op-btn { min-height: 44px; padding: 0 16px; background: rgba(201,168,76,.14); border: 1px solid rgba(201,168,76,.4); border-radius: 10px; color: var(--gold-light); font-family: 'Noto Sans KR', sans-serif; font-size: 14px; cursor: pointer; transition: var(--trans); }
+.op-btn:hover { background: rgba(201,168,76,.25); }
+.op-btn.primary { background: linear-gradient(135deg, var(--gold) 0%, #a87c2a 100%); color: var(--deep); font-weight: 700; border: none; width: 100%; }
+.op-btn.danger { background: rgba(200,70,70,.15); border-color: rgba(200,70,70,.45); color: #f09090; }
+.op-team { border: 1px solid rgba(201,168,76,.2); border-radius: 12px; padding: 12px; margin-bottom: 10px; }
+.op-team-name { font-size: 16px; color: var(--cream); font-weight: 700; word-break: keep-all; }
+.op-team-meta { font-size: 13px; color: var(--gold-dim); margin: 4px 0 10px; line-height: 1.6; }
+.op-team-btns { display: flex; flex-wrap: wrap; gap: 8px; }
+.op-status { display: inline-block; font-size: 12px; padding: 2px 9px; border-radius: 10px; margin-left: 6px; vertical-align: middle; }
+.op-status.active { background: rgba(100,180,100,.16); color: #90d090; }
+.op-status.suspended { background: rgba(200,70,70,.18); color: #f09090; }
+.op-empty { font-size: 14px; color: var(--gold-dim); text-align: center; padding: 16px; }
+.op-select { width: 100%; min-height: 44px; margin-bottom: 8px; background: #1e1608; border: 1.5px solid rgba(201,168,76,.25); border-radius: 10px; color: var(--cream); font-size: 16px; padding: 0 10px; }
+
+#code-dialog { position: fixed; inset: 0; z-index: 9997; background: rgba(18,14,5,.9); backdrop-filter: blur(8px); display: none; align-items: center; justify-content: center; }
+#code-dialog.show { display: flex; }
+.code-box { background: #1e1608; border: 1px solid rgba(201,168,76,.4); border-radius: var(--radius); padding: 22px 20px; max-width: 440px; width: 90%; }
+.code-box h3 { font-size: 16px; color: var(--gold-light); margin-bottom: 4px; text-align: center; }
+.code-box .code-team { font-size: 14px; color: var(--cream); text-align: center; margin-bottom: 14px; word-break: keep-all; }
+.code-row { margin-bottom: 12px; }
+.code-row label { display: block; font-size: 13px; color: var(--gold-dim); margin-bottom: 5px; }
+.code-row .code-line { display: flex; gap: 8px; align-items: center; }
+.code-row .code-value { flex: 1; font-family: 'Lato', monospace; font-size: 20px; letter-spacing: .1em; color: var(--cream); background: rgba(255,255,255,.06); border-radius: 8px; padding: 10px 12px; text-align: center; -webkit-user-select: all; user-select: all; }
+.code-warn { font-size: 13px; color: #f0b090; line-height: 1.6; margin: 6px 0 14px; text-align: center; }
 </style>
 </head>
 <body>
@@ -773,10 +821,22 @@ html, body { touch-action: manipulation; }
       <h1>Worship<br>Set List</h1>
       <p>예배 인도 악보 관리</p>
     </div>
-    <div class="gate-btns" style="display:flex;flex-direction:column;gap:13px;width:100%;max-width:300px;animation:fadeUp .9s .2s ease both">
-      <button class="btn-primary"          onclick="loginAs('admin')">🔑 관리자로 입장</button>
-      <button class="btn-outline view-btn" onclick="loginAs('user')">👤 사용자로 입장</button>
-    </div>
+    <!-- ★ 찬양팀 코드 입장 — 관리자 코드면 관리자, 팀원 코드면 팀원으로 자동 입장 -->
+    <form class="gate-form" onsubmit="event.preventDefault(); enterWithCode();">
+      <label class="gate-label" for="team-code-input">찬양팀 코드를 입력하세요</label>
+      <div class="code-field">
+        <input type="password" id="team-code-input" class="code-input" autocomplete="off" autocorrect="off"
+               autocapitalize="off" spellcheck="false" maxlength="32" aria-label="찬양팀 코드"/>
+        <button type="button" class="code-eye" onclick="toggleCodeVisible('team-code-input',this)" aria-label="코드 보기">👁</button>
+      </div>
+      <button type="submit" class="btn-primary">입장</button>
+    </form>
+    <button class="gate-op-link" onclick="toggleOperatorLogin()">운영자</button>
+    <form class="gate-op-form" id="gate-op-form" onsubmit="event.preventDefault(); loginOperator();">
+      <input type="password" id="op-password-input" class="code-input" autocomplete="current-password"
+             placeholder="운영자 비밀번호" aria-label="운영자 비밀번호"/>
+      <button type="submit" class="btn-outline view-btn">운영자 입장</button>
+    </form>
   </div>
 
   <!-- HOME -->
@@ -798,6 +858,8 @@ html, body { touch-action: manipulation; }
       <button class="btn-outline view-btn"             onclick="goViewCalendar()">👁 Set List 보기</button>
       <button class="btn-outline admin-only"           onclick="goAdmin()" style="border-color:rgba(201,168,76,.3);font-size:13px;padding:11px 22px;">📄 악보 추가</button>
       <button class="btn-outline admin-only"           onclick="goStats()" style="border-color:rgba(201,168,76,.3);font-size:13px;padding:11px 22px;">📊 선곡 통계</button>
+      <button class="btn-outline admin-only leader-only" onclick="askReissueMemberCode()" style="border-color:rgba(201,168,76,.3);font-size:13px;padding:11px 22px;">🔐 팀원 코드 새로 받기</button>
+      <button class="btn-outline admin-only leader-only" id="sub-admin-btn" onclick="manageSubAdmin()" style="border-color:rgba(201,168,76,.3);font-size:13px;padding:11px 22px;">👔 부관리자 코드 만들기</button>
     </div>
     <span class="home-logout" onclick="logout()">로그아웃</span>
   </div>
@@ -1030,6 +1092,33 @@ html, body { touch-action: manipulation; }
     </div>
   </div>
 
+  <!-- ★ 운영자 화면 — 팀 만들기·목록·코드 재발급·정지·삭제 (팀의 악보·Set List 내용은 보지 않음) -->
+  <div id="screen-operator" class="screen">
+    <div class="app-header">
+      <h2>운영자</h2>
+      <button class="op-btn" onclick="logout()" style="margin-left:auto">로그아웃</button>
+    </div>
+    <div class="op-body">
+      <div class="op-section">
+        <h3>➕ 새 찬양팀 만들기</h3>
+        <input class="op-input" id="op-team-name"   placeholder="찬양팀 이름 (예: 에반디스 찬양팀)" oninput="updateTeamPreview()" maxlength="40"/>
+        <input class="op-input" id="op-church-name" placeholder="교회 이름 (예: 고성제일교회)"      oninput="updateTeamPreview()" maxlength="40"/>
+        <p class="op-preview" id="op-team-preview">저장될 이름: -</p>
+        <button class="op-btn primary" onclick="createTeamOp()">팀 만들고 코드 발급</button>
+      </div>
+      <div class="op-section" id="op-legacy" style="display:none">
+        <h3>📦 팀이 정해지지 않은 예전 자료</h3>
+        <p class="op-team-meta" id="op-legacy-info"></p>
+        <select class="op-select" id="op-legacy-team" aria-label="자료를 옮길 팀"></select>
+        <button class="op-btn primary" onclick="claimLegacyOp()">이 팀으로 옮기기</button>
+      </div>
+      <div class="op-section">
+        <h3>👥 찬양팀 목록</h3>
+        <div id="op-team-list"><p class="op-empty">불러오는 중...</p></div>
+      </div>
+    </div>
+  </div>
+
 </div><!-- #app -->
 
 <!-- ★ 악보 정보 수정 다이얼로그 -->
@@ -1068,6 +1157,31 @@ html, body { touch-action: manipulation; }
       <button class="confirm-btn-cancel" onclick="closeConfirm()">취소</button>
       <button class="confirm-btn-ok" id="confirm-ok-btn" onclick="confirmDelete()">삭제</button>
     </div>
+  </div>
+</div>
+
+<!-- ★ 코드 안내 창 — 코드는 이 창에서 한 번만 보여 줌 -->
+<div id="code-dialog" role="dialog" aria-modal="true" aria-labelledby="code-dialog-title">
+  <div class="code-box">
+    <h3 id="code-dialog-title">발급된 코드</h3>
+    <p class="code-team" id="code-dialog-team"></p>
+    <div class="code-row" id="code-row-admin">
+      <label>관리자 코드 (찬양팀 리더용)</label>
+      <div class="code-line"><span class="code-value" id="code-admin-value"></span>
+        <button class="op-btn" onclick="copyCode('code-admin-value')">복사</button></div>
+    </div>
+    <div class="code-row" id="code-row-member">
+      <label>팀원 코드 (팀원 공통)</label>
+      <div class="code-line"><span class="code-value" id="code-member-value"></span>
+        <button class="op-btn" onclick="copyCode('code-member-value')">복사</button></div>
+    </div>
+    <div class="code-row" id="code-row-sub">
+      <label>부관리자 코드 (부팀장용)</label>
+      <div class="code-line"><span class="code-value" id="code-sub-value"></span>
+        <button class="op-btn" onclick="copyCode('code-sub-value')">복사</button></div>
+    </div>
+    <p class="code-warn">⚠ 이 창을 닫으면 코드를 다시 볼 수 없습니다.<br>지금 복사해서 안전한 곳에 보관하거나 전달해 주세요.</p>
+    <button class="op-btn primary" onclick="closeCodeDialog()">확인했습니다</button>
   </div>
 </div>
 
@@ -1128,47 +1242,312 @@ function escHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&l
 // ══════════════════════════════════════════════
 //  API 호출 (Vercel 버전 B)
 // ══════════════════════════════════════════════
-var _adminToken=null;   // ★ 관리자 입장권 — 로그인 때 서버에서 받아 관리자 요청마다 함께 보냄 (기기에 저장하지 않음)
+// ★ 입장권 — 서버가 발급. 팀 관리자·팀원은 기기에 기억(다음부터 코드 입력 생략), 운영자는 기억하지 않음
+var SESSION_KEY='wsl_session';
+var _session=null;   // { token, role:'ta'|'tm'|'op', teamName }
+function _saveSession(){
+  try{
+    if(_session && _session.role!=='op') localStorage.setItem(SESSION_KEY, JSON.stringify(_session));
+    else localStorage.removeItem(SESSION_KEY);
+  }catch(e){}
+}
+function _loadSession(){
+  try{ var v=JSON.parse(localStorage.getItem(SESSION_KEY)||'null'); return (v&&v.token)?v:null; }catch(e){ return null; }
+}
 async function gas(fn){
   var args=Array.prototype.slice.call(arguments,1);
   var payload=args.length===1?args[0]:args;
   var res=await fetch('/api/gas',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({fn:fn,payload:payload,token:_adminToken})
+    body:JSON.stringify({fn:fn,payload:payload,token:_session?_session.token:null})
   });
   if(!res.ok) throw new Error('API 오류: '+res.status);
-  return res.json();
+  var r=await res.json();
+  // ★ 입장이 만료되었거나 코드가 재발급된 경우 → 입장 화면으로
+  if(r && r.authRequired && _session){ _sessionExpired(r.message); }
+  return r;
+}
+function _sessionExpired(msg){
+  _session=null; _saveSession(); currentRole=null;
+  if(document.getElementById('screen-viewer').classList.contains('active')) return;   // 악보를 보는 중이면 화면은 그대로
+  showScreen('gate');
+  toast(msg||'코드를 다시 입력해 주세요.');
 }
 
 // ══════════════════════════════════════════════
-//  ROLE
+//  ROLE — 찬양팀 코드 입장
 // ══════════════════════════════════════════════
-async function loginAs(role){
-  if(role==='admin'){
-    var pw = prompt('관리자 비밀번호를 입력하세요:');
-    if(!pw){ return; }
-    setLoading(true, '인증 중...');
-    try{
-      var r = await gas('verifyAdminPassword', pw);
-      if(!r.ok){ toast(r.message || '비밀번호가 틀렸습니다.'); return; }
-      _adminToken = r.token || null;
-    } catch(e){
-      toast('인증 오류: ' + e.message); return;
-    } finally {
-      setLoading(false);
-    }
-  }
-  if(role!=='admin') _adminToken=null;   // 사용자로 입장하면 관리자 입장권을 남기지 않음
-  currentRole=role; applyRole(); showScreen('home');
+function toggleCodeVisible(id,btn){
+  var el=document.getElementById(id);
+  el.type = el.type==='password' ? 'text' : 'password';
+  btn.textContent = el.type==='password' ? '👁' : '🙈';
+}
+async function enterWithCode(){
+  var el=document.getElementById('team-code-input');
+  var code=el.value.trim();
+  if(!code){ toast('코드를 입력하세요.'); return; }
+  setLoading(true,'확인 중...');
+  try{
+    var r=await gas('enterCode', code);
+    if(!r.ok){ toast(r.message||'코드를 다시 확인해 주세요.'); return; }
+    _session={ token:r.token, role:r.role, teamName:r.teamName, subEnabled:!!r.subEnabled };
+    _saveSession();
+    el.value='';
+    _enterHome();
+  }catch(e){ toast('입장 오류: '+e.message); }
+  finally{ setLoading(false); }
+}
+function toggleOperatorLogin(){
+  var f=document.getElementById('gate-op-form');
+  f.classList.toggle('show');
+  if(f.classList.contains('show')) document.getElementById('op-password-input').focus();
+}
+async function loginOperator(){
+  var el=document.getElementById('op-password-input');
+  var pw=el.value;
+  if(!pw){ toast('운영자 비밀번호를 입력하세요.'); return; }
+  setLoading(true,'인증 중...');
+  try{
+    var r=await gas('verifyAdminPassword', pw);
+    if(!r.ok){ toast(r.message||'비밀번호가 틀렸습니다.'); return; }
+    _session={ token:r.token, role:'op', teamName:'' };
+    _saveSession();   // 운영자는 기기에 기억하지 않음
+    el.value=''; document.getElementById('gate-op-form').classList.remove('show');
+    currentRole='operator';
+    goOperator();
+  }catch(e){ toast('인증 오류: '+e.message); }
+  finally{ setLoading(false); }
+}
+// 팀 관리자(ta)·부관리자(ts) → 기존 '관리자', 팀원(tm) → 기존 '사용자' 화면 구성을 그대로 사용
+// (부관리자에게 없는 기능은 leader-only 표시와 서버 권한으로 따로 막음)
+function _isLeader(){ return !!(_session && _session.role==='ta'); }
+function _enterHome(){
+  currentRole = (_session.role==='ta' || _session.role==='ts') ? 'admin' : 'user';
+  applyRole(); showScreen('home');
+}
+// 앱을 열 때 기기에 기억된 입장권 확인
+async function restoreSession(){
+  var saved=_loadSession();
+  if(!saved) return;
+  _session=saved;
+  _enterHome();   // 먼저 바로 보여 주고
+  try{
+    var r=await gas('whoami');           // 뒤에서 아직 유효한지 확인 (무효면 gas()가 입장 화면으로 돌려보냄)
+    if(r && r.ok && r.teamName && _session){ _session.teamName=r.teamName; _session.subEnabled=!!r.subEnabled; _saveSession(); applyRole(); }
+  }catch(e){ /* 인터넷이 안 될 때는 기억된 상태로 계속 사용 */ }
 }
 function applyRole(){
   document.querySelectorAll('.admin-only').forEach(function(el){ el.style.display=currentRole==='admin'?'':'none'; });
+  document.querySelectorAll('.leader-only').forEach(function(el){ if(!_isLeader()) el.style.display='none'; });
   var badge=document.getElementById('role-badge');
   badge.className='role-badge '+(currentRole==='admin'?'admin':'user');
-  badge.textContent=currentRole==='admin'?'👑 관리자 모드':'👤 사용자 모드';
+  var team=_session&&_session.teamName?' · '+_session.teamName:'';
+  var label = !_session ? '' : _session.role==='ta' ? '👑 관리자' : _session.role==='ts' ? '👔 부관리자' : '👤 팀원';
+  badge.textContent=label+team;
+  var sb=document.getElementById('sub-admin-btn');
+  if(sb) sb.textContent = (_session&&_session.subEnabled) ? '👔 부관리자 끄기 (사용 중)' : '👔 부관리자 코드 만들기';
 }
-function logout(){ currentRole=null; _adminToken=null; showScreen('gate'); }
+function logout(){
+  if(_session && _session.role!=='op' && !confirm('로그아웃하면 다음에 코드를 다시 입력해야 합니다.\n로그아웃할까요?')) return;
+  currentRole=null; _session=null; _saveSession(); showScreen('gate');
+}
+
+// ── 팀 관리자: 팀원 코드 새로 받기 ──
+function askReissueMemberCode(){
+  if(currentRole!=='admin'){ toast('관리자만 사용할 수 있습니다.'); return; }
+  document.getElementById('confirm-dialog').querySelector('h3').textContent='팀원 코드 새로 받기';
+  document.getElementById('confirm-ok-btn').textContent='새로 받기';
+  document.getElementById('confirm-msg').innerHTML='새 팀원 코드를 만듭니다.<br>예전 팀원 코드로는 <b>새로 입장할 수 없게</b> 됩니다.<br><small style="color:var(--gold-dim)">이미 입장해 있는 팀원 기기는 그대로 유지됩니다.<br>모든 기기를 내보내야 할 때는 운영자에게 코드 재발급을 요청하세요.</small>';
+  document.getElementById('confirm-ok-btn').onclick=doReissueMemberCode;
+  document.getElementById('confirm-dialog').classList.add('show');
+}
+async function doReissueMemberCode(){
+  closeConfirm();
+  setLoading(true,'코드 만드는 중...');
+  try{
+    var r=await gas('reissueMemberCode');
+    if(!r.ok) throw new Error(r.message);
+    showCodeDialog('새 팀원 코드', _session?_session.teamName:'', null, r.memberCode);
+  }catch(e){ toast('실패: '+e.message); }
+  finally{ setLoading(false); }
+}
+
+// ── 팀 관리자: 부관리자 코드 만들기 / 끄기 ──
+function manageSubAdmin(){
+  if(!_isLeader()){ toast('관리자만 사용할 수 있습니다.'); return; }
+  var on=_session.subEnabled;
+  document.getElementById('confirm-dialog').querySelector('h3').textContent = on ? '부관리자 끄기' : '부관리자 코드 만들기';
+  document.getElementById('confirm-ok-btn').textContent = on ? '끄기' : '만들기';
+  document.getElementById('confirm-msg').innerHTML = on
+    ? '부관리자 코드를 끕니다.<br>부관리자로 들어와 있던 기기는 <b>바로 로그아웃</b>됩니다.<br><small style="color:var(--gold-dim)">팀원과 관리자 기기는 영향이 없습니다.</small>'
+    : '부관리자 코드를 만듭니다.<br>부관리자는 Set List 작성·삭제, 악보 추가·수정, 통계를 할 수 있습니다.<br><small style="color:var(--gold-dim)">악보 삭제와 코드 관리는 관리자만 할 수 있습니다.<br>휴가가 끝나면 이 버튼으로 끄면 됩니다.</small>';
+  document.getElementById('confirm-ok-btn').onclick = on ? doDisableSubAdmin : doCreateSubAdmin;
+  document.getElementById('confirm-dialog').classList.add('show');
+}
+async function doCreateSubAdmin(){
+  closeConfirm();
+  setLoading(true,'코드 만드는 중...');
+  try{
+    var r=await gas('createSubCode');
+    if(!r.ok) throw new Error(r.message);
+    _session.subEnabled=true; _saveSession(); applyRole();
+    showCodeDialog('부관리자 코드', _session.teamName, null, null, r.subCode);
+  }catch(e){ toast('실패: '+e.message); }
+  finally{ setLoading(false); }
+}
+async function doDisableSubAdmin(){
+  closeConfirm();
+  setLoading(true,'변경 중...');
+  try{
+    var r=await gas('disableSubCode');
+    if(!r.ok) throw new Error(r.message);
+    _session.subEnabled=false; _saveSession(); applyRole();
+    toast('✓ 부관리자를 껐습니다');
+  }catch(e){ toast('실패: '+e.message); }
+  finally{ setLoading(false); }
+}
+
+// ── 코드 안내 창 ──
+function showCodeDialog(title, teamName, adminCode, memberCode, subCode){
+  document.getElementById('code-dialog-title').textContent=title;
+  document.getElementById('code-dialog-team').textContent=teamName||'';
+  document.getElementById('code-row-admin').style.display = adminCode ? '' : 'none';
+  document.getElementById('code-row-member').style.display = memberCode ? '' : 'none';
+  document.getElementById('code-row-sub').style.display = subCode ? '' : 'none';
+  document.getElementById('code-admin-value').textContent = adminCode||'';
+  document.getElementById('code-member-value').textContent = memberCode||'';
+  document.getElementById('code-sub-value').textContent = subCode||'';
+  document.getElementById('code-dialog').classList.add('show');
+}
+function closeCodeDialog(){
+  document.getElementById('code-admin-value').textContent='';
+  document.getElementById('code-member-value').textContent='';
+  document.getElementById('code-sub-value').textContent='';
+  document.getElementById('code-dialog').classList.remove('show');
+}
+async function copyCode(id){
+  var text=document.getElementById(id).textContent;
+  try{ await navigator.clipboard.writeText(text); toast('✓ 복사했습니다'); }
+  catch(e){
+    var ta=document.createElement('textarea'); ta.value=text; document.body.appendChild(ta); ta.select();
+    try{ document.execCommand('copy'); toast('✓ 복사했습니다'); }catch(e2){ toast('복사에 실패했습니다. 길게 눌러 복사해 주세요.'); }
+    document.body.removeChild(ta);
+  }
+}
+
+// ══════════════════════════════════════════════
+//  ★ 운영자 화면
+// ══════════════════════════════════════════════
+var _opTeams=[];
+function goOperator(){
+  if(!_session||_session.role!=='op'){ showScreen('gate'); return; }
+  showScreen('operator');
+  loadTeamsOp();
+}
+function updateTeamPreview(){
+  var t=document.getElementById('op-team-name').value.trim();
+  var c=document.getElementById('op-church-name').value.trim();
+  document.getElementById('op-team-preview').textContent='저장될 이름: '+(t&&c? t+'('+c+')' : '-');
+}
+function _fmtDate(v){ return v ? String(v).slice(0,10) : '-'; }
+async function loadTeamsOp(){
+  var box=document.getElementById('op-team-list');
+  try{
+    var r=await gas('listTeams');
+    if(!r.ok) throw new Error(r.message);
+    _opTeams=r.teams||[];
+    // 예전 자료
+    var lg=r.legacy||{scores:0,setRows:0};
+    var lgBox=document.getElementById('op-legacy');
+    if(lg.scores>0||lg.setRows>0){
+      lgBox.style.display='';
+      document.getElementById('op-legacy-info').textContent='악보 '+lg.scores+'곡, Set List 곡 항목 '+lg.setRows+'개가 아직 어느 팀에도 속하지 않았습니다.';
+      document.getElementById('op-legacy-team').innerHTML=_opTeams.length
+        ? _opTeams.map(function(t){ return '<option value="'+t.id+'">'+escHtml(t.display_name)+'</option>'; }).join('')
+        : '<option value="">먼저 팀을 만들어 주세요</option>';
+    } else lgBox.style.display='none';
+    // 팀 목록
+    if(!_opTeams.length){ box.innerHTML='<p class="op-empty">아직 만든 찬양팀이 없습니다.</p>'; return; }
+    box.innerHTML=_opTeams.map(function(t){
+      var on=t.status==='active';
+      return '<div class="op-team">'
+        +'<div class="op-team-name">'+escHtml(t.display_name)
+        +'<span class="op-status '+(on?'active':'suspended')+'">'+(on?'사용 중':'정지')+'</span></div>'
+        +'<div class="op-team-meta">만든 날 '+_fmtDate(t.created_at)+' · 최근 사용 '+_fmtDate(t.last_used_at)
+        +'<br>악보 '+(t.scores||0)+'곡 · Set List 곡 항목 '+(t.setRows||0)+'개</div>'
+        +'<div class="op-team-btns">'
+        +'<button class="op-btn" onclick="reissueCodesOp('+t.id+')">🔐 코드 재발급</button>'
+        +'<button class="op-btn" onclick="toggleTeamStatusOp('+t.id+')">'+(on?'⏸ 정지':'▶ 정지 해제')+'</button>'
+        +'<button class="op-btn danger" onclick="deleteTeamOp('+t.id+')">🗑 삭제</button>'
+        +'</div></div>';
+    }).join('');
+  }catch(e){ box.innerHTML='<p class="op-empty">불러오지 못했습니다: '+escHtml(e.message)+'</p>'; }
+}
+async function createTeamOp(){
+  var t=document.getElementById('op-team-name').value.trim();
+  var c=document.getElementById('op-church-name').value.trim();
+  if(!t||!c){ toast('찬양팀 이름과 교회 이름을 모두 입력하세요.'); return; }
+  setLoading(true,'팀 만드는 중...');
+  try{
+    var r=await gas('createTeam',{team_name:t,church_name:c});
+    if(!r.ok) throw new Error(r.message);
+    document.getElementById('op-team-name').value=''; document.getElementById('op-church-name').value=''; updateTeamPreview();
+    showCodeDialog('새 찬양팀 코드', r.displayName, r.adminCode, r.memberCode);
+    loadTeamsOp();
+  }catch(e){ toast('실패: '+e.message); }
+  finally{ setLoading(false); }
+}
+function _opTeam(id){ for(var i=0;i<_opTeams.length;i++) if(_opTeams[i].id===id) return _opTeams[i]; return null; }
+async function reissueCodesOp(id){
+  var t=_opTeam(id); if(!t) return;
+  if(!confirm('「'+t.display_name+'」의 관리자 코드와 팀원 코드를 모두 새로 만듭니다.\n이 팀의 모든 기기가 로그아웃되고, 새 코드로 다시 입장해야 합니다.\n부관리자 코드도 꺼집니다.\n진행할까요?')) return;
+  setLoading(true,'코드 만드는 중...');
+  try{
+    var r=await gas('reissueTeamCodes',{team_id:id});
+    if(!r.ok) throw new Error(r.message);
+    showCodeDialog('재발급된 코드', r.displayName, r.adminCode, r.memberCode);
+  }catch(e){ toast('실패: '+e.message); }
+  finally{ setLoading(false); }
+}
+async function toggleTeamStatusOp(id){
+  var t=_opTeam(id); if(!t) return;
+  var next=t.status==='active'?'suspended':'active';
+  if(next==='suspended' && !confirm('「'+t.display_name+'」의 사용을 정지할까요?\n정지하면 이 팀의 모든 기기에서 앱을 쓸 수 없습니다. (자료는 그대로 보관)')) return;
+  setLoading(true,'변경 중...');
+  try{
+    var r=await gas('setTeamStatus',{team_id:id,status:next});
+    if(!r.ok) throw new Error(r.message);
+    toast(next==='active'?'✓ 정지를 해제했습니다':'✓ 사용을 정지했습니다');
+    loadTeamsOp();
+  }catch(e){ toast('실패: '+e.message); }
+  finally{ setLoading(false); }
+}
+async function deleteTeamOp(id){
+  var t=_opTeam(id); if(!t) return;
+  var typed=prompt('⚠ 「'+t.display_name+'」 팀과 이 팀의 악보·Set List를 모두 삭제합니다. 되돌릴 수 없습니다.\n\n삭제하려면 팀 이름을 그대로 입력하세요:\n'+t.display_name);
+  if(typed===null) return;
+  setLoading(true,'삭제 중...');
+  try{
+    var r=await gas('deleteTeam',{team_id:id,confirm_name:typed.trim()});
+    if(!r.ok) throw new Error(r.message);
+    toast('✓ 삭제했습니다'); loadTeamsOp();
+  }catch(e){ toast(e.message); }
+  finally{ setLoading(false); }
+}
+async function claimLegacyOp(){
+  var id=Number(document.getElementById('op-legacy-team').value);
+  var t=_opTeam(id); if(!t){ toast('먼저 팀을 만들어 주세요.'); return; }
+  if(!confirm('예전 자료를 모두 「'+t.display_name+'」 팀으로 옮길까요?')) return;
+  setLoading(true,'옮기는 중...');
+  try{
+    var r=await gas('claimLegacyData',{team_id:id});
+    if(!r.ok) throw new Error(r.message);
+    toast('✓ 악보 '+r.scores+'곡, Set List 곡 항목 '+r.setRows+'개를 옮겼습니다');
+    loadTeamsOp();
+  }catch(e){ toast('실패: '+e.message); }
+  finally{ setLoading(false); }
+}
 
 // ══════════════════════════════════════════════
 //  NAVIGATION
@@ -2382,7 +2761,9 @@ function filterScoreList(){
     dBtn.textContent='🗑';
     dBtn.style.cssText='background:rgba(200,70,70,.18);border:1px solid rgba(200,70,70,.35);color:#e07070;border-radius:7px;font-size:12px;padding:5px 9px;cursor:pointer;flex-shrink:0';
     (function(fname,stitle){ dBtn.addEventListener('click',function(){ askDeleteScore(fname,stitle); }); })(s.file_name,s.song_title);
-    row.appendChild(info); row.appendChild(eBtn); row.appendChild(dBtn); body.appendChild(row);
+    row.appendChild(info); row.appendChild(eBtn);
+    if(_isLeader()) row.appendChild(dBtn);   // ★ 악보 삭제는 관리자만 (부관리자는 수정까지)
+    body.appendChild(row);
   });
 }
 // ★ 악보 정보 수정 — 다이얼로그 열기/닫기/저장
@@ -2436,6 +2817,7 @@ async function confirmEditScore(){
 }
 
 function askDeleteScore(fileName,title){
+  if(!_isLeader()){ toast('악보 삭제는 관리자만 할 수 있습니다.'); return; }
   pendingDeleteScore=fileName;
   document.getElementById('confirm-dialog').querySelector('h3').textContent='삭제 확인';
   document.getElementById('confirm-ok-btn').textContent='삭제';
@@ -3139,6 +3521,7 @@ function init(){
   setupKeyboard();
   setupOrientationHandler();
   setupAnnotationCanvas();
+  restoreSession();       // ★ 기기에 기억된 찬양팀 입장권이 있으면 바로 홈으로
 }
 
 // ══════════════════════════════════════════════
