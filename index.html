@@ -719,6 +719,14 @@ html, body { touch-action: manipulation; }
 .stats-tab:hover { background: rgba(201,168,76,.14); }
 .stats-tab.active { background: rgba(201,168,76,.28); border-color: rgba(201,168,76,.6); color: var(--cream); font-weight: 700; }
 .stats-range { font-size: 12px; color: var(--gold-dim); text-align: center; }
+/* ★ 통계 곡 검색창 (iOS 확대 방지 위해 16px) */
+.stats-search {
+  width: 100%; min-height: 44px; padding: 0 14px;
+  background: rgba(255,255,255,.06); border: 1.5px solid rgba(201,168,76,.25); border-radius: 10px;
+  color: var(--cream); font-family: 'Noto Sans KR', sans-serif; font-size: 16px; outline: none;
+}
+.stats-search:focus { border-color: rgba(201,168,76,.6); }
+.stats-sort-note { font-size: 12px; color: var(--gold-dim); text-align: center; margin-top: -6px; }
 .stats-row {
   position: relative; display: flex; align-items: center; gap: 10px;
   padding: 11px 12px; margin-bottom: 6px;
@@ -1008,12 +1016,15 @@ html, body { touch-action: manipulation; }
       <h2>선곡 통계</h2>
     </div>
     <div class="stats-body">
+      <input type="search" class="stats-search" id="stats-search" placeholder="🔍 곡 제목 검색" aria-label="곡 제목 검색"
+             oninput="onStatsSearch()" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
       <div class="stats-tabs" role="tablist" aria-label="통계 기간 선택">
         <button class="stats-tab active" role="tab" aria-selected="true"  onclick="switchStatsPeriod(1)">1개월</button>
         <button class="stats-tab"        role="tab" aria-selected="false" onclick="switchStatsPeriod(3)">3개월</button>
         <button class="stats-tab"        role="tab" aria-selected="false" onclick="switchStatsPeriod(6)">6개월</button>
       </div>
       <p class="stats-range" id="stats-range"></p>
+      <p class="stats-sort-note">적게 부른 곡 → 오래전에 부른 곡 순서</p>
       <div id="stats-list" role="list"></div>
       <button class="stats-more" id="stats-more" onclick="showMoreStats()" style="display:none">더 보기</button>
     </div>
@@ -3268,6 +3279,7 @@ var statsLimit=30;     // 현재 화면에 표시 중인 곡 수
 async function goStats(){
   if(currentRole!=='admin'){ toast('관리자만 사용 가능합니다.'); return; }
   statsPeriod=1; statsLimit=30;
+  var _sq=document.getElementById('stats-search'); if(_sq) _sq.value='';
   _statsSyncTabs(1);
   document.getElementById('stats-range').textContent='';
   document.getElementById('stats-more').style.display='none';
@@ -3285,6 +3297,10 @@ async function goStats(){
   }
   renderStats();
 }
+
+/** ★ 곡 제목 검색 — 띄어쓰기·대소문자 무시, 조 표시(D-, E- 등)가 붙어 있어도 찾아짐 */
+function _statsNorm(t){ return String(t||'').replace(/\s+/g,'').toLowerCase(); }
+function onStatsSearch(){ statsLimit=30; renderStats(); }
 
 function switchStatsPeriod(months){
   if(!statsData) return;
@@ -3334,7 +3350,15 @@ function renderStats(){
     var ds=s.dates.filter(function(d){ return d>=from && d<=to; });
     if(ds.length) list.push({ title:s.title, count:ds.length, last:ds[0] });
   });
-  list.sort(function(a,b){ return b.count-a.count || a.title.localeCompare(b.title,'ko'); });
+  // ★ 검색어가 있으면 그 곡만
+  var qEl=document.getElementById('stats-search');
+  var q=_statsNorm(qEl?qEl.value:'');
+  if(q) list=list.filter(function(s){ return _statsNorm(s.title).indexOf(q)>=0; });
+
+  // ★ 정렬: ① 부른 횟수가 적은 곡 먼저 ② 횟수가 같으면 마지막으로 부른 날이 오래된 곡 먼저 ③ 그다음 제목순
+  list.sort(function(a,b){
+    return a.count-b.count || a.last.localeCompare(b.last) || a.title.localeCompare(b.title,'ko');
+  });
 
   document.getElementById('stats-range').textContent=
     from+' ~ '+to+' · 총 '+list.length+'곡';
@@ -3343,12 +3367,15 @@ function renderStats(){
   var more=document.getElementById('stats-more');
 
   if(!list.length){
-    box.innerHTML='<p class="stats-empty">최근 '+statsPeriod+'개월간 저장된 Set List가 없습니다.</p>';
+    box.innerHTML=q
+      ? '<p class="stats-empty">최근 '+statsPeriod+'개월간 「'+escHtml(qEl.value.trim())+'」 곡을 부른 기록이 없습니다.</p>'
+      : '<p class="stats-empty">최근 '+statsPeriod+'개월간 저장된 Set List가 없습니다.</p>';
     more.style.display='none';
     return;
   }
 
-  var max=list[0].count;
+  // 막대 길이 기준 — 정렬이 오름차순이므로 첫 곡이 아니라 전체 중 최댓값
+  var max=list.reduce(function(m,s){ return Math.max(m,s.count); },1);
   box.innerHTML=list.slice(0,statsLimit).map(function(s,i){
     var pct=Math.round(s.count/max*100);
     return '<div class="stats-row" role="listitem">'
