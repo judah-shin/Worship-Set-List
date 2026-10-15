@@ -4,6 +4,7 @@
 // ================================================================
 
 const { createClient } = require('@supabase/supabase-js');
+const crypto = require('crypto');
 
 // ── Supabase 클라이언트 ──────────────────────────────────────
 const supabase = createClient(
@@ -12,6 +13,68 @@ const supabase = createClient(
 );
 
 const MAX_SETS_PER_DAY = 5;
+
+// ================================================================
+//  ★ 보안 — 관리자 입장권(토큰) 발급·확인
+//   · 비밀번호가 맞으면 24시간 유효한 입장권을 발급한다
+//   · 저장·삭제·등록·수정·통계 요청은 매번 입장권을 확인한다 (화면에서 버튼을 숨기는 것만으로는 막을 수 없음)
+//   · 서명 열쇠는 이미 Vercel에 있는 값(SUPABASE_SERVICE_KEY + ADMIN_PASSWORD)에서 만든다
+//     → 새 설정값이 필요 없고, 비밀번호를 바꾸면 기존 입장권은 모두 자동으로 무효가 된다
+// ================================================================
+const TOKEN_HOURS = 24;
+
+function _tokenSecret() {
+  return crypto.createHash('sha256')
+    .update((process.env.SUPABASE_SERVICE_KEY || '') + '|' + (process.env.ADMIN_PASSWORD || ''))
+    .digest();
+}
+
+function _sign(text) {
+  return crypto.createHmac('sha256', _tokenSecret()).update(text).digest('hex');
+}
+
+// 길이가 달라도 시간 차이로 내용을 추측할 수 없게 비교
+function _safeEqual(a, b) {
+  const ha = crypto.createHash('sha256').update(String(a)).digest();
+  const hb = crypto.createHash('sha256').update(String(b)).digest();
+  return crypto.timingSafeEqual(ha, hb);
+}
+
+function issueAdminToken() {
+  const exp = Date.now() + TOKEN_HOURS * 60 * 60 * 1000;
+  const body = 'admin.' + exp;
+  return body + '.' + _sign(body);
+}
+
+function isValidAdminToken(token) {
+  if (!token || typeof token !== 'string') return false;
+  const parts = token.split('.');
+  if (parts.length !== 3 || parts[0] !== 'admin') return false;
+  const exp = Number(parts[1]);
+  if (!exp || exp < Date.now()) return false;
+  return _safeEqual(parts[2], _sign(parts[0] + '.' + parts[1]));
+}
+
+// 관리자만 실행할 수 있는 기능 목록
+const ADMIN_ONLY = new Set([
+  'saveSetList', 'deleteSetList',
+  'adminAddSong', 'adminDeleteSong', 'adminUpdateSong',
+  'getAllScores', 'getSongStats',
+]);
+
+// ── 비밀번호 반복 시도 제한 (같은 접속 주소에서 10분 안에 5번 틀리면 10분간 차단) ──
+//   Vercel 서버는 여러 대로 나뉘어 돌기 때문에 완벽한 차단은 아니며,
+//   틀릴 때마다 1.5초씩 늦게 답하는 장치와 함께 자동 추측을 크게 늦추는 역할을 한다
+const FAIL_LIMIT = 5;
+const FAIL_WINDOW_MS = 10 * 60 * 1000;
+const _failLog = new Map();   // ip → [실패 시각, ...]
+
+function _recentFails(ip) {
+  const now = Date.now();
+  const list = (_failLog.get(ip) || []).filter(t => now - t < FAIL_WINDOW_MS);
+  _failLog.set(ip, list);
+  return list;
+}
 
 // ================================================================
 //  헬퍼 — 날짜 정규화 (YYYY-MM-DD)
@@ -67,10 +130,24 @@ function setCors(res) {
 // ================================================================
 //  1. 관리자 비밀번호 검증
 // ================================================================
-async function verifyAdminPassword(inputPw) {
+async function verifyAdminPassword(inputPw, ctx) {
   try {
+    const ip = (ctx && ctx.ip) || 'unknown';
+    if (_recentFails(ip).length >= FAIL_LIMIT) {
+      return { ok: false, message: '비밀번호를 여러 번 틀렸습니다. 10분 뒤에 다시 시도해 주세요.' };
+    }
+
     const stored = process.env.ADMIN_PASSWORD || '';
-    return { ok: inputPw === stored };
+    const ok = stored !== '' && typeof inputPw === 'string' && _safeEqual(inputPw, stored);
+
+    if (!ok) {
+      _recentFails(ip).push(Date.now());
+      await new Promise(r => setTimeout(r, 1500));   // 자동 추측 속도 늦추기
+      return { ok: false };
+    }
+
+    _failLog.delete(ip);
+    return { ok: true, token: issueAdminToken() };
   } catch (e) {
     return { ok: false, message: e.message };
   }
@@ -441,6 +518,24 @@ async function fetchFileAsBase64(fileUrl) {
 
     console.log(`[fetchFile] 원본 URL: ${originalUrl}`);
 
+    // ★ 보안 — 앱에 등록된 악보 주소만 가져온다 (아무 주소나 대신 받아 주는 통로로 쓰이지 않게)
+    if (!/^https:\/\//i.test(originalUrl)) {
+      return { ok: false, message: 'https 주소만 사용할 수 있습니다.' };
+    }
+    const candidates = Array.from(new Set([fileUrl, originalUrl]));
+    const { data: inScores, error: e1 } = await supabase
+      .from('scores').select('file_url').in('file_url', candidates).limit(1);
+    if (e1) throw new Error(e1.message);
+    if (!inScores || inScores.length === 0) {
+      const { data: inSets, error: e2 } = await supabase
+        .from('set_list').select('file_url').in('file_url', candidates).limit(1);
+      if (e2) throw new Error(e2.message);
+      if (!inSets || inSets.length === 0) {
+        console.warn(`[fetchFile] 등록되지 않은 주소 요청 거절: ${originalUrl}`);
+        return { ok: false, message: '등록된 악보가 아닙니다.' };
+      }
+    }
+
     // OneDrive URL 변환
     if (url.includes('1drv.ms') || url.includes('onedrive.live.com')) {
       url += (url.includes('?') ? '&' : '?') + 'download=1';
@@ -579,14 +674,26 @@ module.exports = async function handler(req, res) {
     return res.status(405).json({ ok: false, message: 'Method Not Allowed' });
   }
 
-  const { fn, payload } = req.body || {};
+  const { fn, payload, token } = req.body || {};
 
-  if (!fn || !handlers[fn]) {
+  if (!fn || !Object.prototype.hasOwnProperty.call(handlers, fn)) {
     return res.status(400).json({ ok: false, message: '알 수 없는 함수: ' + fn });
   }
 
+  // ★ 보안 — 관리자 기능은 매 요청마다 입장권 확인
+  if (ADMIN_ONLY.has(fn) && !isValidAdminToken(token)) {
+    return res.json({
+      ok: false,
+      authRequired: true,
+      message: '관리자 인증이 필요합니다. 로그아웃한 뒤 관리자로 다시 입장해 주세요.',
+    });
+  }
+
+  const ip = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim()
+          || (req.socket && req.socket.remoteAddress) || 'unknown';
+
   try {
-    const result = await handlers[fn](payload);
+    const result = await handlers[fn](payload, { ip });
     return res.json(result);
   } catch (e) {
     console.error('[gas.js] 오류:', fn, e);
