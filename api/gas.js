@@ -15,22 +15,34 @@ const supabase = createClient(
 const MAX_SETS_PER_DAY = 5;
 
 // ================================================================
-//  ★ 보안 — 관리자 입장권(토큰) 발급·확인
-//   · 비밀번호가 맞으면 24시간 유효한 입장권을 발급한다
-//   · 저장·삭제·등록·수정·통계 요청은 매번 입장권을 확인한다 (화면에서 버튼을 숨기는 것만으로는 막을 수 없음)
-//   · 서명 열쇠는 이미 Vercel에 있는 값(SUPABASE_SERVICE_KEY + ADMIN_PASSWORD)에서 만든다
-//     → 새 설정값이 필요 없고, 비밀번호를 바꾸면 기존 입장권은 모두 자동으로 무효가 된다
+//  ★ 보안 — 입장권(토큰) 발급·확인 (찬양팀 코드 방식)
+//   역할 네 가지
+//     op : 운영자 (ADMIN_PASSWORD) — 팀 만들기·코드 발급·정지·삭제만, 팀 자료는 보지 않음
+//     ta : 팀 관리자 (관리자 코드) — 자기 팀의 Set List·악보·통계 관리, 팀원·부관리자 코드 관리
+//     ts : 부관리자 (부관리자 코드) — 관리자가 켜고 끔. Set List 작성·삭제, 악보 추가·수정, 통계
+//     tm : 팀원     (팀원 코드)   — 자기 팀의 Set List·악보 보기
+//   · 입장권 모양: 역할.팀번호.코드버전.만료시각.서명
+//     (부관리자는 코드버전 자리에 "팀코드버전s부관리자버전" — 부관리자를 끄거나 새로 만들면 부관리자만 무효)
+//   · 코드를 재발급하면 코드버전이 올라가 옛 입장권은 자동으로 무효
+//   · 팀이 정지되면 그 팀의 입장권은 모두 거절
+//   · 운영자 입장권은 ADMIN_PASSWORD로 서명 → 비밀번호를 바꾸면 운영자 입장권만 무효
+//   · 팀 코드는 SUPABASE_SERVICE_KEY로 암호화 → 운영자 비밀번호를 바꿔도 팀 코드는 그대로
 // ================================================================
-const TOKEN_HOURS = 24;
+const OP_TOKEN_HOURS   = 24;          // 운영자: 하루
+const TEAM_TOKEN_DAYS  = 180;         // 팀 관리자·팀원: 기기에 기억 (코드 재발급 전까지 유지)
 
-function _tokenSecret() {
+function _opSecret() {
   return crypto.createHash('sha256')
-    .update((process.env.SUPABASE_SERVICE_KEY || '') + '|' + (process.env.ADMIN_PASSWORD || ''))
+    .update('op|' + (process.env.SUPABASE_SERVICE_KEY || '') + '|' + (process.env.ADMIN_PASSWORD || ''))
     .digest();
 }
-
-function _sign(text) {
-  return crypto.createHmac('sha256', _tokenSecret()).update(text).digest('hex');
+function _teamSecret() {
+  return crypto.createHash('sha256')
+    .update('team|' + (process.env.SUPABASE_SERVICE_KEY || ''))
+    .digest();
+}
+function _hmac(secret, text) {
+  return crypto.createHmac('sha256', secret).update(text).digest('hex');
 }
 
 // 길이가 달라도 시간 차이로 내용을 추측할 수 없게 비교
@@ -40,26 +52,87 @@ function _safeEqual(a, b) {
   return crypto.timingSafeEqual(ha, hb);
 }
 
-function issueAdminToken() {
-  const exp = Date.now() + TOKEN_HOURS * 60 * 60 * 1000;
-  const body = 'admin.' + exp;
-  return body + '.' + _sign(body);
+// 코드 → 저장용 암호화 값 (같은 코드는 항상 같은 값 → 조회 가능, 원래 코드로 되돌릴 수 없음)
+function hashCode(code) {
+  return _hmac(_teamSecret(), 'code|' + String(code));
 }
 
-function isValidAdminToken(token) {
-  if (!token || typeof token !== 'string') return false;
+// ── 12자리 코드 자동 생성 — 영문 대·소문자 + 숫자 + 특수문자, 헷갈리는 글자(0 O 1 l I) 제외 ──
+const CODE_SETS = [
+  'ABCDEFGHJKLMNPQRSTUVWXYZ',
+  'abcdefghijkmnopqrstuvwxyz',
+  '23456789',
+  '!@#$%?&',
+];
+function generateCode(len = 12) {
+  const all = CODE_SETS.join('');
+  const chars = CODE_SETS.map(set => set[crypto.randomInt(set.length)]);   // 종류별로 최소 1개
+  while (chars.length < len) chars.push(all[crypto.randomInt(all.length)]);
+  for (let i = chars.length - 1; i > 0; i--) {                               // 섞기
+    const j = crypto.randomInt(i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join('');
+}
+
+// 역할별 입장권 버전 — 부관리자는 팀 코드버전과 부관리자 버전을 함께 확인
+function _verOf(role, team) {
+  return role === 'ts' ? `${team.code_version}s${team.sub_version}` : String(team.code_version);
+}
+
+function issueToken(role, teamId, ver) {
+  const ms = role === 'op' ? OP_TOKEN_HOURS * 3600e3 : TEAM_TOKEN_DAYS * 86400e3;
+  const body = [role, teamId || 0, ver || 0, Date.now() + ms].join('.');
+  const secret = role === 'op' ? _opSecret() : _teamSecret();
+  return body + '.' + _hmac(secret, body);
+}
+
+// 서명·만료만 확인 (팀 상태·코드버전은 resolveSession에서 DB로 확인)
+function parseToken(token) {
+  if (!token || typeof token !== 'string') return null;
   const parts = token.split('.');
-  if (parts.length !== 3 || parts[0] !== 'admin') return false;
-  const exp = Number(parts[1]);
-  if (!exp || exp < Date.now()) return false;
-  return _safeEqual(parts[2], _sign(parts[0] + '.' + parts[1]));
+  if (parts.length !== 5) return null;
+  const [role, teamId, ver, exp, sig] = parts;
+  if (!['op', 'ta', 'ts', 'tm'].includes(role)) return null;
+  if (!Number(exp) || Number(exp) < Date.now()) return null;
+  const secret = role === 'op' ? _opSecret() : _teamSecret();
+  if (!_safeEqual(sig, _hmac(secret, parts.slice(0, 4).join('.')))) return null;
+  return { role, teamId: Number(teamId), ver: String(ver) };
 }
 
-// 관리자만 실행할 수 있는 기능 목록
-const ADMIN_ONLY = new Set([
-  'saveSetList', 'deleteSetList',
-  'adminAddSong', 'adminDeleteSong', 'adminUpdateSong',
-  'getAllScores', 'getSongStats',
+// 입장권 → 실제 권한 (팀이 정지됐거나 코드가 재발급됐으면 null)
+async function resolveSession(token) {
+  const t = parseToken(token);
+  if (!t) return null;
+  if (t.role === 'op') return { role: 'op', teamId: null };
+  const { data: team, error } = await supabase
+    .from('teams').select('id, display_name, code_version, status, sub_code_hash, sub_version')
+    .eq('id', t.teamId).maybeSingle();
+  if (error || !team) return null;
+  if (team.status !== 'active' || t.ver !== _verOf(t.role, team)) return null;
+  if (t.role === 'ts' && !team.sub_code_hash) return null;   // 부관리자가 꺼져 있으면 거절
+  return { role: t.role, teamId: team.id, teamName: team.display_name, subEnabled: !!team.sub_code_hash };
+}
+
+// 기능별 필요한 권한
+//   PUBLIC : 입장 전에도 가능
+//   MEMBER : 팀원 이상 (팀 관리자 포함)
+//   TEAM_ADMIN : 팀 관리자만
+//   OPERATOR : 운영자만
+const PUBLIC     = new Set(['verifyAdminPassword', 'enterCode']);
+const MEMBER     = new Set(['whoami', 'getSetListsByDate', 'getDatesWithSetList', 'fetchFileAsBase64']);
+// 관리자와 부관리자 모두
+const EDITOR     = new Set([
+  'saveSetList', 'deleteSetList', 'searchSongs',
+  'adminAddSong', 'adminUpdateSong', 'getAllScores', 'getSongStats',
+]);
+// 관리자만 (악보 삭제, 코드 관리)
+const TEAM_ADMIN = new Set([
+  'adminDeleteSong', 'reissueMemberCode', 'createSubCode', 'disableSubCode',
+]);
+const OPERATOR   = new Set([
+  'opWhoami', 'listTeams', 'createTeam', 'setTeamStatus',
+  'reissueTeamCodes', 'deleteTeam', 'claimLegacyData',
 ]);
 
 // ── 비밀번호 반복 시도 제한 (같은 접속 주소에서 10분 안에 5번 틀리면 10분간 차단) ──
@@ -147,7 +220,7 @@ async function verifyAdminPassword(inputPw, ctx) {
     }
 
     _failLog.delete(ip);
-    return { ok: true, token: issueAdminToken() };
+    return { ok: true, role: 'op', token: issueToken('op') };
   } catch (e) {
     return { ok: false, message: e.message };
   }
@@ -156,14 +229,15 @@ async function verifyAdminPassword(inputPw, ctx) {
 // ================================================================
 //  2. Set List 저장
 // ================================================================
-async function saveSetList(payload) {
+async function saveSetList(payload, ctx) {
   try {
     const targetDate = normDate(payload.worship_date);
 
-    // 같은 날짜의 기존 set_id 수 확인
+    // 같은 팀·같은 날짜의 기존 set_id 수 확인
     const { data: existing, error: cntErr } = await supabase
       .from('set_list')
       .select('set_id')
+      .eq('team_id', ctx.teamId)
       .eq('worship_date', targetDate);
 
     if (cntErr) throw new Error(cntErr.message);
@@ -177,8 +251,11 @@ async function saveSetList(payload) {
     }
 
     const now = new Date().toISOString();
+    // ★ Set List 번호는 서버가 만든다 — 팀이 많아져도 겹치지 않게 (날짜 + 무작위 10자리)
+    const setId = 'SET_' + targetDate.replace(/-/g, '') + '_' + crypto.randomBytes(5).toString('hex').toUpperCase();
     const rows = payload.songs.map(song => ({
-      set_id:       payload.set_id,
+      team_id:      ctx.teamId,
+      set_id:       setId,
       group_title:  payload.group_title,
       worship_date: targetDate,
       song_order:   song.song_order,
@@ -202,13 +279,14 @@ async function saveSetList(payload) {
 // ================================================================
 //  3. 날짜별 Set List 조회
 // ================================================================
-async function getSetListsByDate(date) {
+async function getSetListsByDate(date, ctx) {
   try {
     const targetDate = normDate(date);
 
     const { data: rows, error } = await supabase
       .from('set_list')
       .select('*')
+      .eq('team_id', ctx.teamId)
       .eq('worship_date', targetDate)
       .order('set_id')
       .order('song_order');
@@ -248,7 +326,7 @@ async function getSetListsByDate(date) {
 // ================================================================
 //  4. 캘린더 dot용 — Set List 존재 날짜 목록
 // ================================================================
-async function getDatesWithSetList(month) {
+async function getDatesWithSetList(month, ctx) {
   try {
     if (!month || !/^\d{4}-\d{2}$/.test(month)) {
       return { ok: false, message: '월 형식이 올바르지 않습니다. (YYYY-MM)' };
@@ -257,6 +335,7 @@ async function getDatesWithSetList(month) {
     const { data: rows, error } = await supabase
       .from('set_list')
       .select('worship_date')
+      .eq('team_id', ctx.teamId)
       .like('worship_date', `${month}%`);
 
     if (error) throw new Error(error.message);
@@ -271,7 +350,7 @@ async function getDatesWithSetList(month) {
 // ================================================================
 //  5. Set List 삭제
 // ================================================================
-async function deleteSetList(set_id) {
+async function deleteSetList(set_id, ctx) {
   try {
     if (!set_id || String(set_id).trim() === '') {
       return { ok: false, message: '삭제할 Set ID가 없습니다.' };
@@ -281,6 +360,7 @@ async function deleteSetList(set_id) {
     const { data, error } = await supabase
       .from('set_list')
       .delete()
+      .eq('team_id', ctx.teamId)
       .eq('set_id', targetId)
       .select();
 
@@ -298,7 +378,7 @@ async function deleteSetList(set_id) {
 // ================================================================
 //  6. 악보 검색 (scores 테이블)
 // ================================================================
-async function searchSongs(query) {
+async function searchSongs(query, ctx) {
   try {
     const keyword = (query || '').toLowerCase().trim();
     if (!keyword) return { ok: true, data: [] };
@@ -306,6 +386,7 @@ async function searchSongs(query) {
     const { data: rows, error } = await supabase
       .from('scores')
       .select('song_title, file_name, file_url')
+      .eq('team_id', ctx.teamId)
       .ilike('song_title', `%${keyword}%`)
       .limit(50);
 
@@ -319,7 +400,7 @@ async function searchSongs(query) {
 // ================================================================
 //  7. 악보 등록 (관리자)
 // ================================================================
-async function adminAddSong(song) {
+async function adminAddSong(song, ctx) {
   try {
     if (!song.song_title || !song.file_name || !song.file_url) {
       return { ok: false, message: '곡 제목, 파일명, URL을 모두 입력해 주세요.' };
@@ -329,6 +410,7 @@ async function adminAddSong(song) {
     const { data: dup } = await supabase
       .from('scores')
       .select('file_name')
+      .eq('team_id', ctx.teamId)
       .eq('file_name', song.file_name.trim())
       .maybeSingle();
 
@@ -337,6 +419,7 @@ async function adminAddSong(song) {
     }
 
     const { error } = await supabase.from('scores').insert({
+      team_id:     ctx.teamId,
       song_title:  song.song_title,
       file_name:   song.file_name,
       file_url:    song.file_url,
@@ -354,7 +437,7 @@ async function adminAddSong(song) {
 // ================================================================
 //  8. 악보 삭제 (관리자)
 // ================================================================
-async function adminDeleteSong(file_name) {
+async function adminDeleteSong(file_name, ctx) {
   try {
     if (!file_name || file_name.trim() === '') {
       return { ok: false, message: '삭제할 파일명이 없습니다.' };
@@ -364,6 +447,7 @@ async function adminDeleteSong(file_name) {
     const { data, error } = await supabase
       .from('scores')
       .delete()
+      .eq('team_id', ctx.teamId)
       .eq('file_name', target)
       .select();
 
@@ -384,7 +468,7 @@ async function adminDeleteSong(file_name) {
 //   - 같은 file_name을 가진 set_list 항목들의 song_title, file_url도 함께 업데이트
 //     → URL 변경 시 기존 셋리스트도 즉시 새 URL 사용
 // ================================================================
-async function adminUpdateSong(payload) {
+async function adminUpdateSong(payload, ctx) {
   try {
     const { file_name, song_title, file_url } = payload || {};
     if (!file_name || !song_title || !file_url) {
@@ -397,6 +481,7 @@ async function adminUpdateSong(payload) {
     const { data: scoreData, error: scoreErr } = await supabase
       .from('scores')
       .update({ song_title: song_title.trim(), file_url: file_url.trim() })
+      .eq('team_id', ctx.teamId)
       .eq('file_name', target)
       .select();
 
@@ -409,6 +494,7 @@ async function adminUpdateSong(payload) {
     const { data: setData, error: setErr } = await supabase
       .from('set_list')
       .update({ song_title: song_title.trim(), file_url: file_url.trim() })
+      .eq('team_id', ctx.teamId)
       .eq('file_name', target)
       .select();
 
@@ -435,11 +521,12 @@ async function adminUpdateSong(payload) {
 // ================================================================
 //  9. 악보 전체 목록 조회 (관리자)
 // ================================================================
-async function getAllScores() {
+async function getAllScores(_payload, ctx) {
   try {
     const { data: rows, error } = await supabase
       .from('scores')
       .select('song_title, file_name, file_url, uploaded_by, uploaded_at')
+      .eq('team_id', ctx.teamId)
       .order('uploaded_at', { ascending: false });
 
     if (error) throw new Error(error.message);
@@ -507,7 +594,7 @@ async function _tryFetch(url, originalUrl, driveFileId, attempt) {
   };
 }
 
-async function fetchFileAsBase64(fileUrl) {
+async function fetchFileAsBase64(fileUrl, ctx) {
   try {
     if (!fileUrl || fileUrl.trim() === '') {
       return { ok: false, message: '파일 URL이 없습니다.' };
@@ -524,11 +611,11 @@ async function fetchFileAsBase64(fileUrl) {
     }
     const candidates = Array.from(new Set([fileUrl, originalUrl]));
     const { data: inScores, error: e1 } = await supabase
-      .from('scores').select('file_url').in('file_url', candidates).limit(1);
+      .from('scores').select('file_url').eq('team_id', ctx.teamId).in('file_url', candidates).limit(1);
     if (e1) throw new Error(e1.message);
     if (!inScores || inScores.length === 0) {
       const { data: inSets, error: e2 } = await supabase
-        .from('set_list').select('file_url').in('file_url', candidates).limit(1);
+        .from('set_list').select('file_url').eq('team_id', ctx.teamId).in('file_url', candidates).limit(1);
       if (e2) throw new Error(e2.message);
       if (!inSets || inSets.length === 0) {
         console.warn(`[fetchFile] 등록되지 않은 주소 요청 거절: ${originalUrl}`);
@@ -587,7 +674,7 @@ async function fetchFileAsBase64(fileUrl) {
 //  · 기간 내 사용 이력이 없는 곡은 포함하지 않음 (set_list 단일 조회)
 //  · 1개월·3개월 필터는 프론트에서 처리하므로 항상 6개월치를 반환
 // ================================================================
-async function getSongStats() {
+async function getSongStats(_payload, ctx) {
   try {
     const MONTHS = 6;
     const PAGE   = 1000;
@@ -607,6 +694,7 @@ async function getSongStats() {
       const { data, error } = await supabase
         .from('set_list')
         .select('song_title, file_name, worship_date')
+        .eq('team_id', ctx.teamId)
         .gte('worship_date', from)
         .lte('worship_date', to)
         .order('worship_date', { ascending: false })
@@ -666,6 +754,254 @@ async function getSongStats() {
 }
 
 // ================================================================
+//  ★ 찬양팀 입장 — 코드 하나로 팀과 역할(관리자·팀원)을 찾는다
+// ================================================================
+async function enterCode(code, ctx) {
+  try {
+    const ip = (ctx && ctx.ip) || 'unknown';
+    if (_recentFails(ip).length >= FAIL_LIMIT) {
+      return { ok: false, message: '코드를 여러 번 틀렸습니다. 10분 뒤에 다시 시도해 주세요.' };
+    }
+    const c = String(code || '').trim();
+    if (c.length < 8) {
+      _recentFails(ip).push(Date.now());
+      return { ok: false, message: '코드를 다시 확인해 주세요.' };
+    }
+    const h = hashCode(c);
+    const { data: rows, error } = await supabase
+      .from('teams')
+      .select('id, display_name, code_version, status, admin_code_hash, member_code_hash, sub_code_hash, sub_version')
+      .or(`admin_code_hash.eq.${h},member_code_hash.eq.${h},sub_code_hash.eq.${h}`)
+      .limit(1);
+    if (error) throw new Error(error.message);
+    const team = rows && rows[0];
+    if (!team) {
+      _recentFails(ip).push(Date.now());
+      await new Promise(r => setTimeout(r, 1500));   // 자동 추측 속도 늦추기
+      return { ok: false, message: '코드를 다시 확인해 주세요.' };
+    }
+    if (team.status !== 'active') {
+      return { ok: false, message: '사용이 정지된 팀입니다. 운영자에게 문의해 주세요.' };
+    }
+    _failLog.delete(ip);
+    const role = team.admin_code_hash === h ? 'ta' : team.sub_code_hash === h ? 'ts' : 'tm';
+    await supabase.from('teams').update({ last_used_at: new Date().toISOString() }).eq('id', team.id);
+    return {
+      ok: true,
+      role,
+      teamName: team.display_name,
+      subEnabled: !!team.sub_code_hash,
+      token: issueToken(role, team.id, _verOf(role, team)),
+    };
+  } catch (e) {
+    return { ok: false, message: e.message };
+  }
+}
+
+// 기기에 기억된 입장권이 아직 유효한지 확인 (앱을 열 때)
+async function whoami(_payload, ctx) {
+  try {
+    await supabase.from('teams').update({ last_used_at: new Date().toISOString() }).eq('id', ctx.teamId);
+  } catch (e) { /* 최근 사용일 기록 실패는 무시 */ }
+  return { ok: true, role: ctx.role, teamName: ctx.teamName, subEnabled: ctx.subEnabled };
+}
+
+// ── 팀 관리자: 팀원 코드 재발급 (관리자 코드는 그대로) ──
+//   팀원 코드만 바뀌므로 코드버전은 올리지 않는다 → 이미 들어와 있는 팀원 기기는 그대로 유지
+//   (팀원을 모두 내보내야 할 때는 운영자에게 "코드 재발급"을 요청 → 모든 기기 로그아웃)
+async function reissueMemberCode(_payload, ctx) {
+  try {
+    const memberCode = generateCode();
+    const { error } = await supabase.from('teams')
+      .update({ member_code_hash: hashCode(memberCode) }).eq('id', ctx.teamId);
+    if (error) throw new Error(error.message);
+    return { ok: true, memberCode };
+  } catch (e) {
+    return { ok: false, message: e.message };
+  }
+}
+
+// ── 팀 관리자: 부관리자 코드 만들기 / 끄기 ──
+//   만들 때마다 부관리자 버전이 올라가 예전 부관리자 기기는 로그아웃됨
+async function _bumpSub(teamId, newHash) {
+  const { data: team, error: e1 } = await supabase
+    .from('teams').select('sub_version').eq('id', teamId).maybeSingle();
+  if (e1) throw new Error(e1.message);
+  if (!team) throw new Error('팀을 찾을 수 없습니다.');
+  const { error } = await supabase.from('teams')
+    .update({ sub_code_hash: newHash, sub_version: (team.sub_version || 0) + 1 }).eq('id', teamId);
+  if (error) throw new Error(error.message);
+}
+async function createSubCode(_payload, ctx) {
+  try {
+    const subCode = generateCode();
+    await _bumpSub(ctx.teamId, hashCode(subCode));
+    return { ok: true, subCode };
+  } catch (e) {
+    return { ok: false, message: e.message };
+  }
+}
+async function disableSubCode(_payload, ctx) {
+  try {
+    await _bumpSub(ctx.teamId, null);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, message: e.message };
+  }
+}
+
+// ================================================================
+//  ★ 운영자 기능 — 팀 만들기·목록·정지·코드 재발급·삭제
+//   운영자는 팀의 Set List·악보 내용은 보지 않는다 (개수만 표시)
+// ================================================================
+async function opWhoami() {
+  return { ok: true, role: 'op' };
+}
+
+async function listTeams() {
+  try {
+    const { data: teams, error } = await supabase
+      .from('teams')
+      .select('id, team_name, church_name, display_name, status, created_at, last_used_at')
+      .order('created_at', { ascending: true });
+    if (error) throw new Error(error.message);
+
+    // 팀별 악보·Set List 개수 (내용은 가져오지 않음)
+    const counts = {};
+    for (const t of teams || []) {
+      const [{ count: sc }, { count: lc }] = await Promise.all([
+        supabase.from('scores').select('id', { count: 'exact', head: true }).eq('team_id', t.id),
+        supabase.from('set_list').select('set_id', { count: 'exact', head: true }).eq('team_id', t.id),
+      ]);
+      counts[t.id] = { scores: sc || 0, setRows: lc || 0 };
+    }
+    // 아직 팀이 정해지지 않은 예전 자료 개수
+    const [{ count: ls }, { count: ll }] = await Promise.all([
+      supabase.from('scores').select('id', { count: 'exact', head: true }).is('team_id', null),
+      supabase.from('set_list').select('set_id', { count: 'exact', head: true }).is('team_id', null),
+    ]);
+
+    return {
+      ok: true,
+      teams: (teams || []).map(t => Object.assign({}, t, counts[t.id])),
+      legacy: { scores: ls || 0, setRows: ll || 0 },
+    };
+  } catch (e) {
+    return { ok: false, message: e.message };
+  }
+}
+
+async function createTeam(payload) {
+  try {
+    const teamName   = String((payload && payload.team_name)   || '').trim();
+    const churchName = String((payload && payload.church_name) || '').trim();
+    if (!teamName || !churchName) {
+      return { ok: false, message: '찬양팀 이름과 교회 이름을 모두 입력해 주세요.' };
+    }
+    if (teamName.length > 40 || churchName.length > 40) {
+      return { ok: false, message: '이름은 40자 이내로 입력해 주세요.' };
+    }
+    const displayName = `${teamName}(${churchName})`;
+    const adminCode  = generateCode();
+    let   memberCode = generateCode();
+    while (memberCode === adminCode) memberCode = generateCode();
+
+    const { data, error } = await supabase.from('teams').insert({
+      team_name: teamName, church_name: churchName, display_name: displayName,
+      admin_code_hash: hashCode(adminCode), member_code_hash: hashCode(memberCode),
+    }).select('id').single();
+    if (error) throw new Error(error.message);
+
+    // 코드는 이번 한 번만 돌려준다 (서버에는 암호화된 값만 남음)
+    return { ok: true, teamId: data.id, displayName, adminCode, memberCode };
+  } catch (e) {
+    return { ok: false, message: e.message };
+  }
+}
+
+async function setTeamStatus(payload) {
+  try {
+    const id = Number(payload && payload.team_id);
+    const status = payload && payload.status;
+    if (!id || !['active', 'suspended'].includes(status)) {
+      return { ok: false, message: '요청이 올바르지 않습니다.' };
+    }
+    const { data, error } = await supabase.from('teams').update({ status }).eq('id', id).select('id');
+    if (error) throw new Error(error.message);
+    if (!data || !data.length) return { ok: false, message: '팀을 찾을 수 없습니다.' };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, message: e.message };
+  }
+}
+
+// 관리자·팀원 코드 모두 재발급 + 코드버전 증가 → 그 팀의 모든 기기가 로그아웃됨
+async function reissueTeamCodes(payload) {
+  try {
+    const id = Number(payload && payload.team_id);
+    const { data: team, error: e1 } = await supabase
+      .from('teams').select('id, display_name, code_version, sub_version').eq('id', id).maybeSingle();
+    if (e1) throw new Error(e1.message);
+    if (!team) return { ok: false, message: '팀을 찾을 수 없습니다.' };
+
+    const adminCode  = generateCode();
+    let   memberCode = generateCode();
+    while (memberCode === adminCode) memberCode = generateCode();
+    const { error } = await supabase.from('teams').update({
+      admin_code_hash: hashCode(adminCode),
+      member_code_hash: hashCode(memberCode),
+      code_version: team.code_version + 1,
+      sub_code_hash: null,                          // 부관리자도 꺼짐 (관리자가 다시 만들어야 함)
+      sub_version: (team.sub_version || 0) + 1,
+    }).eq('id', id);
+    if (error) throw new Error(error.message);
+    return { ok: true, displayName: team.display_name, adminCode, memberCode };
+  } catch (e) {
+    return { ok: false, message: e.message };
+  }
+}
+
+// 팀 삭제 — 실수 방지를 위해 표시 이름을 정확히 입력해야 함. 팀의 악보·Set List도 함께 삭제
+async function deleteTeam(payload) {
+  try {
+    const id = Number(payload && payload.team_id);
+    const confirmName = String((payload && payload.confirm_name) || '').trim();
+    const { data: team, error: e1 } = await supabase
+      .from('teams').select('id, display_name').eq('id', id).maybeSingle();
+    if (e1) throw new Error(e1.message);
+    if (!team) return { ok: false, message: '팀을 찾을 수 없습니다.' };
+    if (confirmName !== team.display_name) {
+      return { ok: false, message: '팀 이름이 일치하지 않아 삭제하지 않았습니다.' };
+    }
+    const r1 = await supabase.from('set_list').delete().eq('team_id', id);
+    if (r1.error) throw new Error(r1.error.message);
+    const r2 = await supabase.from('scores').delete().eq('team_id', id);
+    if (r2.error) throw new Error(r2.error.message);
+    const r3 = await supabase.from('teams').delete().eq('id', id);
+    if (r3.error) throw new Error(r3.error.message);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, message: e.message };
+  }
+}
+
+// 팀이 정해지지 않은 예전 자료(전환 전 자료)를 지정한 팀으로 옮긴다 — 한 번만 쓰는 기능
+async function claimLegacyData(payload) {
+  try {
+    const id = Number(payload && payload.team_id);
+    const { data: team } = await supabase.from('teams').select('id').eq('id', id).maybeSingle();
+    if (!team) return { ok: false, message: '팀을 찾을 수 없습니다.' };
+    const r1 = await supabase.from('scores').update({ team_id: id }).is('team_id', null).select('id');
+    if (r1.error) throw new Error(r1.error.message);
+    const r2 = await supabase.from('set_list').update({ team_id: id }).is('team_id', null).select('set_id');
+    if (r2.error) throw new Error(r2.error.message);
+    return { ok: true, scores: (r1.data || []).length, setRows: (r2.data || []).length };
+  } catch (e) {
+    return { ok: false, message: e.message };
+  }
+}
+
+// ================================================================
 //  핸들러 라우터
 // ================================================================
 const handlers = {
@@ -681,6 +1017,18 @@ const handlers = {
   getAllScores,
   fetchFileAsBase64,
   getSongStats,
+  enterCode,
+  whoami,
+  reissueMemberCode,
+  createSubCode,
+  disableSubCode,
+  opWhoami,
+  listTeams,
+  createTeam,
+  setTeamStatus,
+  reissueTeamCodes,
+  deleteTeam,
+  claimLegacyData,
 };
 
 // ================================================================
@@ -704,20 +1052,33 @@ module.exports = async function handler(req, res) {
     return res.status(400).json({ ok: false, message: '알 수 없는 함수: ' + fn });
   }
 
-  // ★ 보안 — 관리자 기능은 매 요청마다 입장권 확인
-  if (ADMIN_ONLY.has(fn) && !isValidAdminToken(token)) {
-    return res.json({
-      ok: false,
-      authRequired: true,
-      message: '관리자 인증이 필요합니다. 로그아웃한 뒤 관리자로 다시 입장해 주세요.',
-    });
-  }
-
   const ip = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim()
           || (req.socket && req.socket.remoteAddress) || 'unknown';
 
   try {
-    const result = await handlers[fn](payload, { ip });
+    // ★ 보안 — 매 요청마다 입장권으로 역할·팀을 확인하고, 기능별 권한을 검사
+    let ctx = { ip };
+    if (!PUBLIC.has(fn)) {
+      const session = await resolveSession(token);
+      const r = session && session.role;
+      const allowed = session && (
+        (OPERATOR.has(fn)   && r === 'op') ||
+        (TEAM_ADMIN.has(fn) && r === 'ta') ||
+        (EDITOR.has(fn)     && (r === 'ta' || r === 'ts')) ||
+        (MEMBER.has(fn)     && (r === 'ta' || r === 'ts' || r === 'tm'))
+      );
+      if (!allowed) {
+        return res.json({
+          ok: false,
+          authRequired: true,
+          message: session ? '이 기능을 사용할 권한이 없습니다.'
+                           : '입장이 만료되었거나 코드가 바뀌었습니다. 코드를 다시 입력해 주세요.',
+        });
+      }
+      ctx = Object.assign(ctx, session);
+    }
+
+    const result = await handlers[fn](payload, ctx);
     return res.json(result);
   } catch (e) {
     console.error('[gas.js] 오류:', fn, e);
