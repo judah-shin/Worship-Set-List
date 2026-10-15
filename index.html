@@ -1117,13 +1117,14 @@ function escHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&l
 // ══════════════════════════════════════════════
 //  API 호출 (Vercel 버전 B)
 // ══════════════════════════════════════════════
+var _adminToken=null;   // ★ 관리자 입장권 — 로그인 때 서버에서 받아 관리자 요청마다 함께 보냄 (기기에 저장하지 않음)
 async function gas(fn){
   var args=Array.prototype.slice.call(arguments,1);
   var payload=args.length===1?args[0]:args;
   var res=await fetch('/api/gas',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({fn:fn,payload:payload})
+    body:JSON.stringify({fn:fn,payload:payload,token:_adminToken})
   });
   if(!res.ok) throw new Error('API 오류: '+res.status);
   return res.json();
@@ -1139,13 +1140,15 @@ async function loginAs(role){
     setLoading(true, '인증 중...');
     try{
       var r = await gas('verifyAdminPassword', pw);
-      if(!r.ok){ toast('비밀번호가 틀렸습니다.'); return; }
+      if(!r.ok){ toast(r.message || '비밀번호가 틀렸습니다.'); return; }
+      _adminToken = r.token || null;
     } catch(e){
       toast('인증 오류: ' + e.message); return;
     } finally {
       setLoading(false);
     }
   }
+  if(role!=='admin') _adminToken=null;   // 사용자로 입장하면 관리자 입장권을 남기지 않음
   currentRole=role; applyRole(); showScreen('home');
 }
 function applyRole(){
@@ -1154,7 +1157,7 @@ function applyRole(){
   badge.className='role-badge '+(currentRole==='admin'?'admin':'user');
   badge.textContent=currentRole==='admin'?'👑 관리자 모드':'👤 사용자 모드';
 }
-function logout(){ currentRole=null; showScreen('gate'); }
+function logout(){ currentRole=null; _adminToken=null; showScreen('gate'); }
 
 // ══════════════════════════════════════════════
 //  NAVIGATION
