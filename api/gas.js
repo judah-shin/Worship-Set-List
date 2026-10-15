@@ -487,6 +487,66 @@ async function fetchFileAsBase64(fileUrl) {
 }
 
 // ================================================================
+//  선곡 통계 — 최근 6개월 set_list 집계 (신규 추가, 기존 함수 무수정)
+//  · 같은 날 여러 Set List에 담긴 곡은 담긴 횟수만큼 그대로 계산
+//  · 기간 내 사용 이력이 없는 곡은 포함하지 않음 (set_list 단일 조회)
+//  · 1개월·3개월 필터는 프론트에서 처리하므로 항상 6개월치를 반환
+// ================================================================
+async function getSongStats() {
+  try {
+    const MONTHS = 6;
+    const PAGE   = 1000;
+
+    // 한국 시간 기준 오늘 날짜 산출 (서버는 UTC이므로 +9시간 보정)
+    const kst  = new Date(Date.now() + 9 * 60 * 60 * 1000);
+    const pad  = n => String(n).padStart(2, '0');
+    const fmt  = d => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+    const y = kst.getUTCFullYear(), m = kst.getUTCMonth(), d = kst.getUTCDate();
+
+    const to   = fmt(new Date(Date.UTC(y, m, d)));
+    const from = fmt(new Date(Date.UTC(y, m - MONTHS, d)));
+
+    // ── 페이징 조회 — Supabase 기본 1,000행 상한 회피 ──────────
+    let rows = [];
+    for (let offset = 0; offset < 20000; offset += PAGE) {
+      const { data, error } = await supabase
+        .from('set_list')
+        .select('song_title, worship_date')
+        .gte('worship_date', from)
+        .lte('worship_date', to)
+        .order('worship_date', { ascending: false })
+        .order('set_id')        // ★ 같은 날짜 안에서도 순서를 고정 — 페이지 경계에서 행이 빠지거나 겹치지 않게
+        .order('song_order')
+        .range(offset, offset + PAGE - 1);
+
+      if (error) throw new Error(error.message);
+      rows = rows.concat(data || []);
+      if (!data || data.length < PAGE) break;
+    }
+
+    // ── 곡 제목 기준 집계 (앞뒤 공백 제거 후 동일 곡으로 묶음) ──
+    const map = new Map();
+    rows.forEach(r => {
+      const title = String(r.song_title || '').trim();
+      if (!title) return;
+      if (!map.has(title)) map.set(title, []);
+      map.get(title).push(normDate(r.worship_date));
+    });
+
+    const songs = Array.from(map.entries())
+      .map(([title, dates]) => {
+        dates.sort((a, b) => b.localeCompare(a));   // 최신 날짜가 앞
+        return { title, dates, count: dates.length, lastDate: dates[0] };
+      })
+      .sort((a, b) => b.count - a.count || a.title.localeCompare(b.title));
+
+    return { ok: true, from, to, today: to, totalRows: rows.length, songs };
+  } catch (e) {
+    return { ok: false, message: e.message };
+  }
+}
+
+// ================================================================
 //  핸들러 라우터
 // ================================================================
 const handlers = {
@@ -501,6 +561,7 @@ const handlers = {
   adminUpdateSong,
   getAllScores,
   fetchFileAsBase64,
+  getSongStats,
 };
 
 // ================================================================
