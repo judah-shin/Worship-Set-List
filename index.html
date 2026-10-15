@@ -1090,7 +1090,7 @@ html, body { touch-action: manipulation; }
         <button class="stats-tab active" role="tab" aria-selected="true"  data-period="1"      onclick="switchStatsPeriod(1)">1개월</button>
         <button class="stats-tab"        role="tab" aria-selected="false" data-period="3"      onclick="switchStatsPeriod(3)">3개월</button>
         <button class="stats-tab"        role="tab" aria-selected="false" data-period="6"      onclick="switchStatsPeriod(6)">6개월</button>
-        <button class="stats-tab"        role="tab" aria-selected="false" data-period="unused" onclick="switchStatsPeriod('unused')">안 부른 곡</button>
+        <button class="stats-tab"        role="tab" aria-selected="false" data-period="unused" onclick="switchStatsPeriod('unused')">미선곡</button>
       </div>
       <p class="stats-range" id="stats-range"></p>
       <p class="stats-sort-note" id="stats-sort-note">적게 부른 곡 → 오래전에 부른 곡 순서</p>
@@ -3773,7 +3773,7 @@ function renderUnusedStats(){
   var box=document.getElementById('stats-list');
   var more=document.getElementById('stats-more');
   var from=_statsCutoff(6), to=statsData.today;
-  document.getElementById('stats-sort-note').textContent='등록된 악보 중 최근 6개월간 Set List에 없던 곡 · 가나다순';
+  document.getElementById('stats-sort-note').textContent='미선곡 — 등록된 악보 중 최근 6개월간 선곡하지 않은 곡 · 가나다순';
   var qEl=document.getElementById('stats-search');
   var q=_statsNorm(qEl?qEl.value:'');
   var list=(statsData.unused||[]).filter(function(s){ return !q || _statsNorm(s.title).indexOf(q)>=0; });
@@ -3787,7 +3787,7 @@ function renderUnusedStats(){
     return '<div class="stats-row" role="listitem">'
       +   '<span class="stats-rank">'+(i+1)+'</span>'
       +   '<div class="stats-info"><div class="stats-title">'+escHtml(s.title)+'</div>'
-      +     '<div class="stats-sub">최근 6개월간 부른 기록 없음</div></div>'
+      +     '<div class="stats-sub">최근 6개월간 선곡 기록 없음</div></div>'
       +   '<span class="stats-count">0회</span>'
       + '</div>';
   }).join('');
