@@ -606,7 +606,7 @@ async function getSongStats() {
     for (let offset = 0; offset < 20000; offset += PAGE) {
       const { data, error } = await supabase
         .from('set_list')
-        .select('song_title, worship_date')
+        .select('song_title, file_name, worship_date')
         .gte('worship_date', from)
         .lte('worship_date', to)
         .order('worship_date', { ascending: false })
@@ -619,20 +619,44 @@ async function getSongStats() {
       if (!data || data.length < PAGE) break;
     }
 
-    // ── 곡 제목 기준 집계 (앞뒤 공백 제거 후 동일 곡으로 묶음) ──
-    const map = new Map();
+    // ── ★ 곡 기준 집계 — 조(코드)와 확장자가 달라도 같은 곡이면 합침 ──
+    //   예) D-은혜가 풍성한 하나님은.jpg / E-은혜가 풍성한 하나님은.png → 한 곡
+    //   · 확장자 제거, 맨 앞의 조 표시(D-, E-, F#-, Bb-, Am- 등) 제거
+    //   · 앞뒤·중복 공백 정리, 대소문자 무시, 맥 방식 한글(자모 분리)도 같은 글자로 맞춤 (NFC)
+    //   · 파일명이 없는 옛 기록은 곡 제목으로 묶음
+    const KEY_RE = /^\s*([A-Ga-g](?:#|b|♯|♭)?m?)\s*[-_]\s*/;
+    const splitName = raw => {
+      const noExt = String(raw || '').trim().replace(/\.[a-z0-9]{2,5}$/i, '').normalize('NFC');
+      const m = noExt.match(KEY_RE);
+      return m ? { key: m[1].charAt(0).toUpperCase() + m[1].slice(1), name: noExt.slice(m[0].length).trim() }
+               : { key: '', name: noExt.trim() };
+    };
+    const map = new Map();   // 묶음 키 → { dates, names:{이름:마지막날짜}, keys:Set }
     rows.forEach(r => {
-      const title = String(r.song_title || '').trim();
-      if (!title) return;
-      if (!map.has(title)) map.set(title, []);
-      map.get(title).push(normDate(r.worship_date));
+      const src = splitName(r.file_name || r.song_title);
+      const fromTitle = splitName(r.song_title);
+      const groupKey = src.name.replace(/\s+/g, ' ').toLowerCase();
+      if (!groupKey) return;
+      const date = normDate(r.worship_date);
+      if (!map.has(groupKey)) map.set(groupKey, { dates: [], names: new Map(), keys: new Set() });
+      const g = map.get(groupKey);
+      g.dates.push(date);
+      if (src.key) g.keys.add(src.key);
+      const shown = fromTitle.name || src.name;   // 화면 표시용 이름 (조 표시 뺀 곡 제목)
+      if (!g.names.has(shown) || g.names.get(shown) < date) g.names.set(shown, date);
     });
 
-    const songs = Array.from(map.entries())
-      .map(([title, dates]) => {
-        dates.sort((a, b) => b.localeCompare(a));   // 최신 날짜가 앞
-        return { title, dates, count: dates.length, lastDate: dates[0] };
+    const songs = Array.from(map.values())
+      .map(g => {
+        g.dates.sort((a, b) => b.localeCompare(a));   // 최신 날짜가 앞
+        // 화면에 보일 이름 — 가장 최근에 쓴 곡 제목 + 불렀던 조 목록
+        let name = '', best = '';
+        g.names.forEach((d, t) => { if (d > best || (d === best && t < name)) { best = d; name = t; } });
+        const keys = Array.from(g.keys).sort();
+        const title = keys.length ? `${name} (${keys.join('·')})` : name;
+        return { title, dates: g.dates, count: g.dates.length, lastDate: g.dates[0] };
       })
+      .filter(s => s.title)
       .sort((a, b) => b.count - a.count || a.title.localeCompare(b.title));
 
     return { ok: true, from, to, today: to, totalRows: rows.length, songs };
