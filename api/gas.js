@@ -123,7 +123,7 @@ const PUBLIC     = new Set(['verifyAdminPassword', 'enterCode']);
 const MEMBER     = new Set(['whoami', 'getSetListsByDate', 'getDatesWithSetList', 'fetchFileAsBase64']);
 // 관리자와 부관리자 모두
 const EDITOR     = new Set([
-  'saveSetList', 'deleteSetList', 'searchSongs',
+  'saveSetList', 'updateSetList', 'deleteSetList', 'searchSongs',
   'adminAddSong', 'adminUpdateSong', 'getAllScores', 'getSongStats',
 ]);
 // 관리자만 (악보 삭제, 코드 관리)
@@ -350,6 +350,48 @@ async function getDatesWithSetList(month, ctx) {
 // ================================================================
 //  5. Set List 삭제
 // ================================================================
+// ================================================================
+//  ★ Set List 수정 — 제목과 예배 날짜 변경 (곡 구성은 그대로)
+//   · 날짜를 옮길 때 그 날짜의 하루 개수 제한(MAX_SETS_PER_DAY)을 확인
+//   · Set List 번호(set_id)는 기본 키라 바꾸지 않음
+// ================================================================
+async function updateSetList(payload, ctx) {
+  try {
+    const setId = String((payload && payload.set_id) || '').trim();
+    const title = String((payload && payload.group_title) || '').trim();
+    const date  = normDate(payload && payload.worship_date);
+    if (!setId) return { ok: false, message: '수정할 Set List가 없습니다.' };
+    if (!title) return { ok: false, message: 'Set List 제목을 입력하세요.' };
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { ok: false, message: '날짜 형식이 올바르지 않습니다.' };
+
+    const { data: cur, error: e1 } = await supabase
+      .from('set_list').select('worship_date')
+      .eq('team_id', ctx.teamId).eq('set_id', setId).limit(1);
+    if (e1) throw new Error(e1.message);
+    if (!cur || !cur.length) return { ok: false, message: '해당 Set List를 찾을 수 없습니다.' };
+
+    if (normDate(cur[0].worship_date) !== date) {
+      const { data: same, error: e2 } = await supabase
+        .from('set_list').select('set_id')
+        .eq('team_id', ctx.teamId).eq('worship_date', date);
+      if (e2) throw new Error(e2.message);
+      const ids = new Set((same || []).map(r => r.set_id));
+      ids.delete(setId);
+      if (ids.size >= MAX_SETS_PER_DAY) {
+        return { ok: false, message: `${date}에는 이미 Set List가 ${ids.size}개 있어 옮길 수 없습니다. (최대 ${MAX_SETS_PER_DAY}개)` };
+      }
+    }
+
+    const { data, error } = await supabase
+      .from('set_list').update({ group_title: title, worship_date: date })
+      .eq('team_id', ctx.teamId).eq('set_id', setId).select('set_id');
+    if (error) throw new Error(error.message);
+    return { ok: true, rows: (data || []).length, worship_date: date };
+  } catch (e) {
+    return { ok: false, message: e.message };
+  }
+}
+
 async function deleteSetList(set_id, ctx) {
   try {
     if (!set_id || String(set_id).trim() === '') {
@@ -747,7 +789,55 @@ async function getSongStats(_payload, ctx) {
       .filter(s => s.title)
       .sort((a, b) => b.count - a.count || a.title.localeCompare(b.title));
 
-    return { ok: true, from, to, today: to, totalRows: rows.length, songs };
+    // ── ★ 6개월간 한 번도 부르지 않은 곡 — 팀에 등록된 악보 중 위 집계에 없는 곡 ──
+    //   (조·확장자가 달라도 같은 곡으로 묶는 규칙은 위와 동일)
+    let scoreRows = [];
+    for (let offset = 0; offset < 20000; offset += PAGE) {
+      const { data, error } = await supabase
+        .from('scores')
+        .select('id, song_title, file_name')
+        .eq('team_id', ctx.teamId)
+        .order('id')
+        .range(offset, offset + PAGE - 1);
+      if (error) throw new Error(error.message);
+      scoreRows = scoreRows.concat(data || []);
+      if (!data || data.length < PAGE) break;
+    }
+    // 앞으로 부를 곡(오늘 이후 날짜로 미리 만든 Set List)도 "안 부른 곡"에서는 제외 — 이미 선곡된 곡이므로
+    const planned = new Set();
+    for (let offset = 0; offset < 20000; offset += PAGE) {
+      const { data, error } = await supabase
+        .from('set_list')
+        .select('song_title, file_name, worship_date')
+        .eq('team_id', ctx.teamId)
+        .gt('worship_date', to)
+        .order('worship_date')
+        .order('set_id')
+        .order('song_order')
+        .range(offset, offset + PAGE - 1);
+      if (error) throw new Error(error.message);
+      (data || []).forEach(r => planned.add(splitName(r.file_name || r.song_title).name.replace(/\s+/g, ' ').toLowerCase()));
+      if (!data || data.length < PAGE) break;
+    }
+
+    const unusedMap = new Map();   // 묶음 키 → { name, keys:Set }
+    scoreRows.forEach(r => {
+      const src = splitName(r.file_name || r.song_title);
+      const groupKey = src.name.replace(/\s+/g, ' ').toLowerCase();
+      if (!groupKey || map.has(groupKey) || planned.has(groupKey)) return;   // 6개월 안에 불렀거나 앞으로 부를 곡은 제외
+      if (!unusedMap.has(groupKey)) {
+        unusedMap.set(groupKey, { name: splitName(r.song_title).name || src.name, keys: new Set() });
+      }
+      if (src.key) unusedMap.get(groupKey).keys.add(src.key);
+    });
+    const unused = Array.from(unusedMap.values())
+      .map(g => {
+        const keys = Array.from(g.keys).sort();
+        return { title: keys.length ? `${g.name} (${keys.join('·')})` : g.name };
+      })
+      .sort((a, b) => a.title.localeCompare(b.title, 'ko'));
+
+    return { ok: true, from, to, today: to, totalRows: rows.length, songs, unused };
   } catch (e) {
     return { ok: false, message: e.message };
   }
@@ -1009,6 +1099,7 @@ const handlers = {
   saveSetList,
   getSetListsByDate,
   getDatesWithSetList,
+  updateSetList,
   deleteSetList,
   searchSongs,
   adminAddSong,
