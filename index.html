@@ -75,15 +75,6 @@ html, body { touch-action: manipulation; }
   overflow: hidden;
 }
 
-/* ── 세로 고정 모드 — 가로 회전 시 안내 오버레이 표시 (터치 기기만) ── */
-@media (orientation: landscape) and (hover: none) {
-  #portrait-only-overlay { display: flex !important; }
-}
-/* PC에서는 오버레이 완전 숨김 */
-@media (hover: hover) and (pointer: fine) {
-  #portrait-only-overlay { display: none !important; }
-}
-
 /* 세로 모드 기본값 */
 #screen-home,
 #screen-gate {
@@ -175,6 +166,10 @@ html, body { touch-action: manipulation; }
 ══════════════════════════════════════ */
 #screen-gate { justify-content: center; align-items: center; padding-bottom: 0; }
 #screen-home { justify-content: center; align-items: center; padding-bottom: 0; }
+/* 휴대폰 가로처럼 높이가 낮은 화면 — 가운데 정렬하면 위쪽(로고)이 잘려 스크롤로도 못 보므로 위에서부터 배치 */
+@media (max-height: 520px) {
+  #screen-gate, #screen-home { justify-content: flex-start; padding-top: 16px; padding-bottom: 16px; }
+}
 
 .home-logo { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-bottom: 38px; animation: fadeDown .9s ease both; }
 .home-logo h1 { font-family: 'Cinzel', serif; font-size: clamp(26px,4vw,48px); font-weight: 700; color: var(--gold-light); letter-spacing: .12em; text-align: center; line-height: 1.25; text-shadow: 0 0 40px rgba(201,168,76,.5); }
@@ -831,12 +826,6 @@ html, body { touch-action: manipulation; }
 <body>
 <div id="bg"></div>
 
-<!-- 가로 회전 시 세로 전환 안내 오버레이 -->
-<div id="portrait-only-overlay" style="display:none;position:fixed;inset:0;z-index:99999;background:#1a1409;flex-direction:column;align-items:center;justify-content:center;gap:20px">
-  <div style="font-size:48px">🔄</div>
-  <div style="color:#c9a84c;font-size:18px;font-weight:600;text-align:center;font-family:Noto Sans KR,sans-serif">화면을 세로로 돌려주세요</div>
-  <div style="color:rgba(201,168,76,.6);font-size:13px;text-align:center;font-family:Noto Sans KR,sans-serif">이 앱은 세로 모드에서만 사용할 수 있습니다.</div>
-</div>
 <div id="app">
 
   <!-- GATE -->
@@ -3845,15 +3834,21 @@ function setupPalmRejection(){
 // ══════════════════════════════════════════════
 function isLandscape(){ return window.innerWidth>window.innerHeight; }
 
-function isPC(){
-  // 마우스 포인터 기기(PC)는 세로 고정 오버레이 적용 안 함
-  return window.matchMedia('(hover: hover) and (pointer: fine)').matches;
-}
-
+// ★ 자동 회전 — 세로·가로 모두 사용 (2026-10-16, 세로 고정 안내 화면 제거)
+// 회전하면 확대·이동을 풀고 악보 전체가 보이는 기본 크기로 되돌린 뒤,
+// 화면 크기가 안정되면 다시 그린다. iOS는 회전 뒤 크기가 늦게 바뀌므로 0.6초 뒤 한 번 더 확인한다.
+var _lastLandscape=null;
 function onOrientationChange(){
-  // 세로 고정 모드 — 터치 기기에서 가로 회전 시 오버레이 표시
-  var overlay=document.getElementById('portrait-only-overlay');
-  if(overlay) overlay.style.display=(!isPC()&&isLandscape())?'flex':'none';
+  var land=isLandscape();
+  if(land===_lastLandscape) return;   // 방향이 실제로 바뀐 경우만
+  _lastLandscape=land;
+  if(document.getElementById('screen-viewer').classList.contains('active') &&
+     (S.pdfZoom!==1.0 || S.panX!==0 || S.panY!==0)){
+    _saveAnnotationSilent();
+    S.pdfZoom=1.0; S.panX=0; S.panY=0;
+  }
+  _relayoutViewerWhenStable();
+  setTimeout(_relayoutViewerWhenStable,600);
 }
 
 // ── 브라우저(Safari) 화면 확대 해제 ──
@@ -3899,10 +3894,11 @@ function _relayoutViewerWhenStable(){
 function setupOrientationHandler(){
   if(window.screen&&window.screen.orientation)
     window.screen.orientation.addEventListener('change',onOrientationChange);
+  window.addEventListener('orientationchange',onOrientationChange);   // 예전 iOS Safari
   var resizeTimer;
   window.addEventListener('resize',function(){
     clearTimeout(resizeTimer);
-    resizeTimer=setTimeout(onOrientationChange,100);
+    resizeTimer=setTimeout(onOrientationChange,100);   // 폴더블폰 펼치기·창 크기 변경도 방향 변화로 처리
     _relayoutViewerWhenStable();   // ★ 늦게 도착하는 화면 크기 변화에도 다시 맞춤
   });
 
