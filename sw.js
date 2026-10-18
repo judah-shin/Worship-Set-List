@@ -33,7 +33,8 @@ self.addEventListener('fetch', function (e) {
 
   // 앱 화면: 인터넷이 되면 항상 최신 화면(새 버전 자동 적용), 안 되거나 4초 넘게 걸리면 보관본
   if (req.mode === 'navigate') {
-    e.respondWith(networkFirst(req));
+    // ★ 앱 화면('/')만 보관 — 개인정보처리방침 같은 다른 페이지를 앱 화면 자리에 보관하지 않게
+    if (url.pathname === '/' || url.pathname === '/index.html') e.respondWith(networkFirst(req));
     return;
   }
   if (url.origin === self.location.origin) {

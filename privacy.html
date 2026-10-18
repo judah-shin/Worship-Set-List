@@ -1,0 +1,77 @@
+<!doctype html>
+<!-- Worship Set List 개인정보처리방침 페이지 (구글 OAuth 동의 화면에 연결) -->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>개인정보처리방침 — Worship Set List</title>
+<style>
+  :root { --gold:#c9a84c; --gold-light:#e8c97a; --cream:#f5f0e8; --deep:#1a1409; --line:rgba(201,168,76,.28); }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--deep); color:var(--cream); font-family:'Noto Sans KR',-apple-system,'Apple SD Gothic Neo','Malgun Gothic',sans-serif; font-size:17px; line-height:1.75; }
+  main { max-width:760px; margin:0 auto; padding:40px 20px 64px; }
+  h1 { color:var(--gold-light); font-size:28px; margin:0 0 4px; }
+  .date { color:var(--gold); font-size:15px; margin:0 0 28px; }
+  h2 { color:var(--gold-light); font-size:20px; margin:36px 0 10px; padding-top:20px; border-top:1px solid var(--line); }
+  p, li { margin:0 0 10px; }
+  ul { padding-left:22px; margin:0 0 10px; }
+  a { color:var(--gold-light); }
+  strong { color:#fff; }
+</style>
+</head>
+<body>
+<main>
+  <h1>개인정보처리방침</h1>
+  <p class="date">Worship Set List · 시행일 2026년 10월 19일</p>
+
+  <p>Worship Set List(이하 "앱")는 교회 찬양팀이 예배 Set List를 만들고 악보를 보는 도구입니다. 앱은 개인을 알아볼 수 있는 정보를 최소한으로만 다루도록 만들어졌습니다.</p>
+
+  <h2>1. 앱 서버에 저장하는 정보</h2>
+  <ul>
+    <li>팀 이름(찬양팀 이름과 교회 이름)</li>
+    <li>팀 입장 코드 — 원래 코드가 아니라 되돌릴 수 없게 암호화한 값만 저장합니다.</li>
+    <li>Set List 내용 — 예배 날짜, 제목, 곡 제목, 키, 악보 파일 링크</li>
+  </ul>
+  <p>앱은 <strong>이름, 이메일, 전화번호 같은 개인 정보를 저장하지 않습니다.</strong> 팀원은 코드로 입장하며 회원 가입이 없습니다.</p>
+
+  <h2>2. 사용하는 기기에만 저장하는 정보</h2>
+  <ul>
+    <li>입장 상태(다시 코드를 넣지 않도록 기기에 기억)</li>
+    <li>한 번 연 악보의 사본(인터넷 없이 보기 위함, 6개월 동안 열지 않으면 자동 삭제)</li>
+    <li>악보 위에 쓴 필기</li>
+  </ul>
+  <p>이 정보는 앱 서버로 보내지 않으며, 로그아웃하면 기기에서 지워집니다.</p>
+
+  <h2>3. Google 계정과 Google Drive 사용</h2>
+  <p>팀 관리자가 "구글 드라이브 연결"을 선택한 경우에만 Google 계정으로 로그인합니다. 이때 앱이 요청하는 권한은 <strong>drive.file</strong> 하나입니다.</p>
+  <ul>
+    <li>앱이 볼 수 있는 것은 <strong>앱이 만든 폴더·파일과 관리자가 직접 고른 폴더</strong>뿐입니다. 드라이브의 다른 파일은 볼 수 없습니다.</li>
+    <li>앱은 악보 폴더를 만들고, 관리자가 고른 악보 사진이나 PDF를 그 폴더에 올리며, 팀원이 볼 수 있도록 올린 파일을 "링크가 있는 사람 누구나 보기"로 설정합니다. 올린 파일의 링크는 그 팀의 악보 목록에 저장됩니다.</li>
+    <li>Google 로그인으로 받은 접근 권한(약 1시간 유효)은 관리자의 기기 브라우저 안에서만 쓰고, <strong>앱 서버에 저장하지 않습니다.</strong> Google 계정 이메일도 저장하지 않습니다.</li>
+    <li>Google에서 받은 정보는 악보를 올리고 보는 기능에만 사용하며, 광고·판매·인공지능 학습 등 다른 목적으로 쓰거나 다른 곳에 넘기지 않습니다. 앱의 Google 사용자 데이터 사용은 <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener">Google API 서비스 사용자 데이터 정책</a>(제한적 사용 요건 포함)을 따릅니다.</li>
+  </ul>
+
+  <h2>4. 앱을 운영하는 데 쓰는 서비스</h2>
+  <ul>
+    <li>Vercel — 앱 화면과 서버 운영</li>
+    <li>Supabase — 1번 정보 저장</li>
+    <li>Google Drive — 악보 파일 보관(각 팀의 구글 드라이브)</li>
+  </ul>
+
+  <h2>5. 삭제와 연결 해제</h2>
+  <ul>
+    <li>팀이 앱 사용을 마치면 운영자가 그 팀의 서버 자료를 삭제합니다.</li>
+    <li>구글 드라이브에 올린 악보 파일은 각 팀이 직접 관리하며, 드라이브에서 언제든 지울 수 있습니다.</li>
+    <li>앱의 Google 드라이브 접근은 <a href="https://myaccount.google.com/connections" target="_blank" rel="noopener">Google 계정 → 타사 연결</a>에서 언제든 해제할 수 있습니다.</li>
+  </ul>
+
+  <h2>6. 악보 저작권</h2>
+  <p>앱은 도구만 제공합니다. 앱에 등록하는 악보의 저작권과 이용 책임은 각 교회와 찬양팀에 있습니다.</p>
+
+  <h2>7. 문의</h2>
+  <p>이 방침에 대한 문의는 소속 찬양팀 관리자를 통해 앱 운영자에게 해 주세요. 방침이 바뀌면 이 페이지에 바뀐 날짜와 함께 알립니다.</p>
+
+  <p style="margin-top:36px"><a href="/">← Worship Set List로 돌아가기</a></p>
+</main>
+</body>
+</html>
