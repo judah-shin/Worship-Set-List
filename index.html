@@ -2275,9 +2275,15 @@ async function loadAndShow(idx){
     return;
   }
   S.preloadCache[song.file_url]=r;
-  var ft=r.fileType||guessType(song.file_name);
-  if(ft==='pdf'){if(S.pdfDoc){S.pdfDoc.destroy();S.pdfDoc=null;}await showPdf(r.base64);}
-  else if(ft==='image')showImage(r.base64,r.mimeType);
+  // ★ 구글 드라이브가 파일 종류를 알려 주지 않으면(fileType 'unknown') 파일 첫 글자로 판단, 그래도 모르면 파일 이름으로
+  var ft=r.fileType, mime=r.mimeType;
+  if(ft!=='pdf'&&ft!=='image'){ var sn=sniffType(r.base64); if(sn){ ft=sn.t; if(sn.m) mime=sn.m; } else ft=guessType(song.file_name); }
+  if(ft==='pdf'){
+    if(S.pdfDoc){S.pdfDoc.destroy();S.pdfDoc=null;}
+    try{ await showPdf(r.base64); }
+    catch(e){ console.error('[loadAndShow] PDF 열기 실패:', song.song_title, e); showEl('msg'); document.getElementById('viewer-msg').textContent='⚠ PDF 파일을 열 수 없습니다. 파일이 손상되었거나 PDF가 아닐 수 있습니다.'; }
+  }
+  else if(ft==='image')showImage(r.base64,mime);
   else{showEl('msg');document.getElementById('viewer-msg').textContent='⚠ 지원하지 않는 파일 형식입니다.';}
 }
 function goSong(idx){ loadAndShow(idx); }
@@ -2552,6 +2558,8 @@ function _getScoreTransform(){
     scoreH    : scoreH      // 현재 CSS 높이
   };
 }
+// 파일 첫 글자(시그니처)로 종류 판단 — PDF는 %PDF(JVBERi), PNG는 iVBORw0KGgo, JPG는 /9j/
+function sniffType(b64){ var h=(b64||'').slice(0,12); if(h.indexOf('JVBERi')===0)return {t:'pdf'}; if(h.indexOf('iVBORw0KGgo')===0)return {t:'image',m:'image/png'}; if(h.indexOf('/9j/')===0)return {t:'image',m:'image/jpeg'}; if(h.indexOf('R0lGOD')===0)return {t:'image',m:'image/gif'}; if(h.indexOf('UklGR')===0)return {t:'image',m:'image/webp'}; return null; }
 function guessType(name){ var ext=getFileExt(name); if(ext==='pdf')return 'pdf'; if(['jpg','jpeg','png','gif','webp','bmp','tiff','tif','svg'].indexOf(ext)>=0)return 'image'; return 'unknown'; }
 
 // ══════════════════════════════════════════════
