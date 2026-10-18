@@ -416,7 +416,7 @@ html, body { touch-action: manipulation; }
 }
 /* fullview pdf-canvas: flex-shrink 방지, max 제약 제거 (JS가 px 계산) */
 .viewer-canvas-wrap.fullview #pdf-canvas {
-  display: block !important;
+  /* ★ display는 JS(showEl)가 정함 — !important로 강제하면 숨긴 이전 곡이 다시 보여 겹침 */
   flex-shrink: 0;
 }
 
@@ -431,7 +431,7 @@ html, body { touch-action: manipulation; }
 
 /* 전체보기 img: CSS 제약 최소화 */
 .viewer-canvas-wrap.fullview #img-viewer {
-  display: block !important;
+  /* ★ display는 JS(showEl)가 정함 — !important로 강제하면 숨긴 이전 곡이 다시 보여 겹침 */
   flex-shrink: 0;
 }
 
