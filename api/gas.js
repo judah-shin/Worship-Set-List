@@ -129,6 +129,7 @@ const EDITOR     = new Set([
 // 관리자만 (악보 삭제, 코드 관리)
 const TEAM_ADMIN = new Set([
   'adminDeleteSong', 'reissueMemberCode', 'createSubCode', 'disableSubCode',
+  'getDriveFolder', 'setDriveFolder',
 ]);
 const OPERATOR   = new Set([
   'opWhoami', 'listTeams', 'createTeam', 'setTeamStatus',
@@ -940,6 +941,37 @@ async function disableSubCode(_payload, ctx) {
   }
 }
 
+// ── 팀 관리자: 악보 저장소(구글 드라이브 폴더) ──
+//   구글 계정 정보·토큰은 서버에 저장하지 않고, 폴더 번호와 이름만 팀에 기억한다
+async function getDriveFolder(_payload, ctx) {
+  try {
+    const { data, error } = await supabase.from('teams')
+      .select('drive_folder_id, drive_folder_name').eq('id', ctx.teamId).maybeSingle();
+    if (error) throw new Error(error.message);
+    return { ok: true, folderId: (data && data.drive_folder_id) || null, folderName: (data && data.drive_folder_name) || null };
+  } catch (e) {
+    return { ok: false, message: e.message };
+  }
+}
+
+async function setDriveFolder(payload, ctx) {
+  try {
+    const p = payload || {};
+    const folderId = p.folderId ? String(p.folderId).trim() : null;
+    const folderName = p.folderName ? String(p.folderName).trim().slice(0, 200) : null;
+    if (folderId && !/^[A-Za-z0-9_-]{10,200}$/.test(folderId)) {
+      return { ok: false, message: '폴더 정보가 올바르지 않습니다.' };
+    }
+    const { error } = await supabase.from('teams')
+      .update({ drive_folder_id: folderId, drive_folder_name: folderId ? folderName : null })
+      .eq('id', ctx.teamId);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, message: e.message };
+  }
+}
+
 // ================================================================
 //  ★ 운영자 기능 — 팀 만들기·목록·정지·코드 재발급·삭제
 //   운영자는 팀의 Set List·악보 내용은 보지 않는다 (개수만 표시)
@@ -1113,6 +1145,8 @@ const handlers = {
   reissueMemberCode,
   createSubCode,
   disableSubCode,
+  getDriveFolder,
+  setDriveFolder,
   opWhoami,
   listTeams,
   createTeam,

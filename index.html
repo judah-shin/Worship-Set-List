@@ -622,6 +622,16 @@ html, body { touch-action: manipulation; }
 .admin-body { padding: 14px; display: flex; flex-direction: column; gap: 13px; }
 .admin-section { background: rgba(201,168,76,.06); border: 1px solid rgba(201,168,76,.18); border-radius: var(--radius); padding: 14px; }
 .admin-section h3 { font-family: 'Cinzel', serif; font-size: 13px; color: var(--gold-light); margin-bottom: 11px; }
+.field-group select { width: 100%; background: rgba(255,255,255,.06); border: 1.5px solid rgba(201,168,76,.25); border-radius: 10px; color: var(--cream); font-size: 14px; font-family: 'Noto Sans KR', sans-serif; padding: 11px 13px; outline: none; color-scheme: dark; }
+.field-group input[type="file"] { padding: 9px 10px; font-size: 13px; }
+.upload-note { font-size: 13px; color: var(--gold-light); line-height: 1.55; margin: 0 0 10px; word-break: keep-all; }
+.upload-note.err { color: #f09090; }
+.upload-note:empty { display: none; }
+.upload-link { display: block; width: 100%; margin-top: 10px; min-height: 44px; background: none; border: none; color: var(--gold); font-size: 13px; text-decoration: underline; cursor: pointer; font-family: 'Noto Sans KR', sans-serif; }
+#drive-dialog { position: fixed; inset: 0; z-index: 9996; background: rgba(18,14,5,.88); backdrop-filter: blur(8px); display: none; align-items: center; justify-content: center; }
+#drive-dialog.show { display: flex; }
+#drive-dialog .drive-box p { color: var(--cream); font-size: 14px; }
+#drive-dialog .drive-box p.upload-note { color: var(--gold-light); }
 .score-list-toggle { width: 100%; padding: 11px; background: rgba(201,168,76,.09); border: 1.5px dashed rgba(201,168,76,.35); border-radius: 10px; color: var(--gold-light); font-size: 13px; font-weight: 500; cursor: pointer; transition: var(--trans); font-family: 'Noto Sans KR', sans-serif; }
 .score-list-toggle:hover { background: rgba(201,168,76,.16); }
 
@@ -1057,8 +1067,28 @@ html, body { touch-action: manipulation; }
       <h2>악보 추가</h2>
     </div>
     <div class="admin-body">
+      <div class="admin-section admin-only leader-only" id="upload-section">
+        <h3>📤 기기에서 악보 올리기</h3>
+        <p class="upload-note" id="upload-folder-info">악보 저장소: 확인 중...</p>
+        <div class="field-group" style="margin-bottom:10px">
+          <label for="up-title">곡 제목</label>
+          <input type="text" id="up-title" placeholder="예) 은혜 아니면"/>
+        </div>
+        <div class="field-group" style="margin-bottom:10px">
+          <label for="up-key">키</label>
+          <select id="up-key"><option value="">모름 (기타 폴더)</option><option>C</option><option>C#</option><option>Db</option><option>D</option><option>Eb</option><option>E</option><option>F</option><option>F#</option><option>Gb</option><option>G</option><option>Ab</option><option>A</option><option>Bb</option><option>B</option><option>Cm</option><option>C#m</option><option>Dm</option><option>Ebm</option><option>Em</option><option>Fm</option><option>F#m</option><option>Gm</option><option>G#m</option><option>Am</option><option>Bbm</option><option>Bm</option></select>
+        </div>
+        <div class="field-group" style="margin-bottom:6px">
+          <label for="up-files">악보 파일 (사진 여러 장 또는 PDF 1개)</label>
+          <input type="file" id="up-files" accept="image/*,application/pdf" multiple onchange="onUploadFilesChange()"/>
+        </div>
+        <p class="upload-note" id="up-file-info" aria-live="polite"></p>
+        <button class="btn-confirm" id="up-btn" onclick="uploadScore()">올리기</button>
+        <button class="upload-link" onclick="openDriveSetup()">저장소 연결·폴더 바꾸기</button>
+      </div>
+
       <div class="admin-section">
-        <h3>📄 악보 등록</h3>
+        <h3>📄 악보 등록 (링크로)</h3>
         <div class="field-group" style="margin-bottom:10px">
           <label>곡 제목</label>
           <input type="text" id="admin-song-title" placeholder="예) 주님의 영광"/>
@@ -1180,6 +1210,22 @@ html, body { touch-action: manipulation; }
       <button class="confirm-btn-cancel" onclick="closeConfirm()">취소</button>
       <button class="confirm-btn-ok" id="confirm-ok-btn" onclick="confirmDelete()">삭제</button>
     </div>
+  </div>
+</div>
+
+<!-- ★ 악보 저장소 준비 창 — 팀 관리자가 구글 드라이브 폴더를 연결 -->
+<div id="drive-dialog" role="dialog" aria-modal="true" aria-labelledby="drive-dialog-title">
+  <div class="confirm-box drive-box">
+    <h3 id="drive-dialog-title">악보 저장소 준비</h3>
+    <p>기기에서 바로 악보를 올리려면 찬양팀 구글 드라이브에 악보 폴더를 연결해 주세요. 앱은 자기가 만든 폴더와 직접 고른 폴더만 볼 수 있고, 드라이브의 다른 파일은 볼 수 없습니다.</p>
+    <p class="upload-note" id="drive-current" style="display:none"></p>
+    <div class="field-group" style="margin-bottom:10px;text-align:left">
+      <label for="drive-new-name">새로 만들 폴더 이름</label>
+      <input type="text" id="drive-new-name" value="Worship Set List 악보"/>
+    </div>
+    <button class="btn-confirm" onclick="driveCreateFolder()">구글 드라이브 연결하고 폴더 만들기</button>
+    <button class="upload-link" onclick="drivePickFolder()">이미 쓰는 폴더 고르기</button>
+    <button class="confirm-btn-cancel" style="margin-top:6px" onclick="driveSetupLater()">나중에 하기</button>
   </div>
 </div>
 
@@ -1387,6 +1433,8 @@ function _isLeader(){ return !!(_session && _session.role==='ta'); }
 function _enterHome(){
   currentRole = (_session.role==='ta' || _session.role==='ts') ? 'admin' : 'user';
   applyRole(); showScreen('home');
+  _drive={ folderId:null, folderName:null, loaded:false }; _keyFolderIds={};
+  _checkDriveSetup();   // 팀 관리자: 악보 저장소가 없으면 준비 창
 }
 // 앱을 열 때 기기에 기억된 입장권 확인
 async function restoreSession(){
@@ -1413,6 +1461,7 @@ function applyRole(){
 function logout(){
   if(_session && _session.role!=='op' && !confirm('로그아웃하면 다음에 코드를 다시 입력해야 합니다.\n로그아웃할까요?')) return;
   currentRole=null; _session=null; _saveSession(); showScreen('gate');
+  _gToken=null; _drive={ folderId:null, folderName:null, loaded:false }; _keyFolderIds={};   // 구글 출입증·저장소 정보도 지움
   scoreClearAll();   // 기기에 보관한 악보·Set List도 지움 (다른 팀이 이 기기를 쓸 때를 대비)
   try{ localStorage.removeItem(OFFLINE_KEY); }catch(e){}
 }
@@ -1627,6 +1676,7 @@ function goAdmin(){
   showScreen('admin');
   // 관리자 화면 진입 시 악보 목록 캐싱 (중복 체크용)
   _loadAdminScoreCache();
+  if(_isLeader()){ _preloadGoogle(); _updateUploadFolderInfo(); if(!_drive.loaded) _loadDriveFolder().catch(function(){ var el=document.getElementById('upload-folder-info'); if(el) el.textContent='악보 저장소 정보를 불러오지 못했습니다. 인터넷 연결을 확인하고 다시 들어와 주세요.'; }); }
 }
 
 // ══════════════════════════════════════════════
@@ -2847,6 +2897,362 @@ function setupGestures(){
 
 // ══════════════════════════════════════════════
 //  ADMIN — 악보 등록/목록
+// ══════════════════════════════════════════════
+//  악보 올리기 — 기기에서 찬양팀 구글 드라이브로 (팀 관리자만)
+// ══════════════════════════════════════════════
+// 파일은 기기에서 구글로 바로 올라가므로 Vercel 사용량을 쓰지 않는다.
+// 구글 권한은 drive.file(앱이 만든 파일과 관리자가 고른 폴더만) 하나이고,
+// 구글 출입증(약 1시간)은 이 화면의 메모리에만 두며 서버에는 저장하지 않는다. 서버에는 폴더 번호·이름만 기억.
+var GOOGLE_CLIENT_ID = '646590624753-kojm52dv7039shl8tvibp1t87coc0l7r.apps.googleusercontent.com';
+var GOOGLE_API_KEY   = 'AIzaSyAcpElqsKVI7G2wfHDDN_WO_zDlRIR_HhA';   // Picker 전용, 앱 주소에서만 쓰이도록 구글에서 제한해 둠
+var GOOGLE_APP_ID    = '646590624753';
+var DRIVE_SCOPE      = 'https://www.googleapis.com/auth/drive.file';
+var DRIVE_API        = 'https://www.googleapis.com/drive/v3/files';
+var SCORE_MAX_BYTES  = 3000000;   // 악보를 열 때 서버(응답 4.5MB 한도)를 거치므로 3MB 이하로 맞춤
+var SCORE_MAX_SIDE   = 2400;      // 사진의 긴 쪽 픽셀 — 아이패드 화면을 채우고 확대해도 선명한 크기
+var _drive = { folderId:null, folderName:null, loaded:false };
+var _gToken = null, _gTokenExp = 0, _keyFolderIds = {}, _uploadBusy = false;
+var _scriptP = {};
+
+function _loadScript(src){
+  if(!_scriptP[src]) _scriptP[src] = new Promise(function(resolve, reject){
+    var s=document.createElement('script'); s.src=src; s.async=true;
+    s.onload=function(){ resolve(); };
+    s.onerror=function(){ delete _scriptP[src]; reject(new Error('구글 연결 프로그램을 불러오지 못했습니다. 인터넷 연결을 확인해 주세요.')); };
+    document.head.appendChild(s);
+  });
+  return _scriptP[src];
+}
+function _preloadGoogle(){ _loadScript('https://accounts.google.com/gsi/client').catch(function(){}); }
+
+// 구글 출입증 받기 — 버튼을 누른 순간 바로 불러야 아이패드에서 구글 창이 막히지 않음
+function _googleToken(){
+  if(_gToken && Date.now() < _gTokenExp - 60000) return Promise.resolve(_gToken);
+  function ask(){
+    return new Promise(function(resolve, reject){
+      var client = google.accounts.oauth2.initTokenClient({
+        client_id: GOOGLE_CLIENT_ID, scope: DRIVE_SCOPE,
+        callback: function(r){
+          if(!r || r.error || !r.access_token){ reject(new Error('구글 드라이브 연결이 허용되지 않았습니다.')); return; }
+          if(google.accounts.oauth2.hasGrantedAllScopes && !google.accounts.oauth2.hasGrantedAllScopes(r, DRIVE_SCOPE)){
+            reject(new Error('구글 창에서 "Google Drive 파일" 권한을 체크하고 다시 허용해 주세요.')); return;
+          }
+          _gToken = r.access_token; _gTokenExp = Date.now() + (Number(r.expires_in)||3600)*1000; resolve(_gToken);
+        },
+        error_callback: function(e){
+          reject(new Error(e && e.type==='popup_closed' ? '구글 연결 창이 닫혔습니다. 다시 눌러 주세요.' : '구글 연결 창을 열지 못했습니다. 팝업 차단을 확인하고 다시 눌러 주세요.'));
+        }
+      });
+      client.requestAccessToken({ prompt: '' });
+    });
+  }
+  if(window.google && google.accounts && google.accounts.oauth2) return ask();
+  return _loadScript('https://accounts.google.com/gsi/client').then(ask);
+}
+
+async function _gfetch(method, url, token, body, headers){
+  var res;
+  try{ res = await fetch(url, { method:method, headers:Object.assign({ Authorization:'Bearer '+token }, headers||{}), body:body }); }
+  catch(e){ throw new Error('구글 드라이브에 연결하지 못했습니다. 인터넷 연결을 확인해 주세요.'); }
+  if(res.status===401){ _gToken=null; throw new Error('구글 연결 시간이 지났습니다. 다시 눌러 주세요.'); }
+  if(!res.ok){
+    var msg=''; try{ var j=await res.json(); msg=(j.error&&j.error.message)||''; }catch(e){}
+    var err=new Error('구글 드라이브 오류 ('+res.status+') '+msg); err.status=res.status; throw err;
+  }
+  return res.status===204 ? null : res.json();
+}
+function _driveNewFolder(name, parentId, token){
+  var meta={ name:name, mimeType:'application/vnd.google-apps.folder' };
+  if(parentId) meta.parents=[parentId];
+  return _gfetch('POST', DRIVE_API+'?fields=id,name', token, JSON.stringify(meta), {'Content-Type':'application/json'});
+}
+async function _driveFindFolder(name, parentId, token){
+  var q="mimeType='application/vnd.google-apps.folder' and trashed=false and name='"+name.replace(/\\/g,'\\\\').replace(/'/g,"\\'")+"' and '"+parentId+"' in parents";
+  var r=await _gfetch('GET', DRIVE_API+'?pageSize=1&fields=files(id,name)&q='+encodeURIComponent(q), token);
+  return r && r.files && r.files[0] ? r.files[0].id : null;
+}
+function _driveUpload(blob, name, parentId, token){
+  var b='wsl'+Date.now().toString(36);
+  var body=new Blob([
+    '--'+b+'\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n'+JSON.stringify({ name:name, parents:[parentId] })+'\r\n',
+    '--'+b+'\r\nContent-Type: '+blob.type+'\r\n\r\n', blob, '\r\n--'+b+'--'
+  ]);
+  return _gfetch('POST', 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name', token, body, {'Content-Type':'multipart/related; boundary='+b});
+}
+function _driveShareAnyone(fileId, token){
+  return _gfetch('POST', DRIVE_API+'/'+fileId+'/permissions', token, JSON.stringify({ role:'reader', type:'anyone' }), {'Content-Type':'application/json'});
+}
+// 키 폴더(예: "D", 키 없으면 "기타") 찾기 — 없으면 만듦
+async function _keyFolder(name, token){
+  var k=_drive.folderId+'|'+name;
+  if(_keyFolderIds[k]) return _keyFolderIds[k];
+  var id;
+  try{ id = await _driveFindFolder(name, _drive.folderId, token) || (await _driveNewFolder(name, _drive.folderId, token)).id; }
+  catch(e){
+    if(e.status===404 || e.status===403) throw new Error('악보 저장소 폴더를 찾을 수 없습니다. 아래 "저장소 연결·폴더 바꾸기"로 다시 연결해 주세요.');
+    throw e;
+  }
+  _keyFolderIds[k]=id; return id;
+}
+
+// ── 악보 저장소 준비 (관리자 첫 입장 / 저장소 연결·폴더 바꾸기) ──
+function _driveLaterKey(){ return 'wsl_drive_later_'+_teamOf(); }
+async function _loadDriveFolder(){
+  var r=await gas('getDriveFolder');
+  if(!r || !r.ok) throw new Error((r&&r.message)||'저장소 정보를 불러오지 못했습니다.');
+  _drive.folderId=r.folderId; _drive.folderName=r.folderName; _drive.loaded=true;
+  _updateUploadFolderInfo();
+}
+// 관리자가 홈에 들어올 때 — 저장소가 없고 "나중에 하기"를 누른 적이 없으면 준비 창을 띄움
+async function _checkDriveSetup(){
+  if(!_isLeader()) return;
+  try{ await _loadDriveFolder(); }catch(e){ return; }   // 서버 준비 전이거나 인터넷이 없으면 조용히 넘어감
+  var later=false; try{ later=!!localStorage.getItem(_driveLaterKey()); }catch(e){}
+  if(!_drive.folderId && !later && _isLeader()) openDriveSetup();
+}
+function openDriveSetup(){
+  _preloadGoogle();
+  var cur=document.getElementById('drive-current');
+  cur.textContent = _drive.folderId ? '지금 연결된 폴더: '+(_drive.folderName||'(이름 없음)') : '';
+  cur.style.display = _drive.folderId ? '' : 'none';
+  document.getElementById('drive-dialog').classList.add('show');
+}
+function closeDriveSetup(){ document.getElementById('drive-dialog').classList.remove('show'); }
+function driveSetupLater(){
+  try{ localStorage.setItem(_driveLaterKey(),'1'); }catch(e){}
+  closeDriveSetup();
+  toast('악보 추가 화면의 "저장소 연결·폴더 바꾸기"에서 언제든 연결할 수 있습니다.');
+}
+async function _saveDriveFolder(id, name){
+  setLoading(true,'저장소 기억하는 중...');
+  try{
+    var r=await gas('setDriveFolder',{ folderId:id, folderName:name });
+    if(!r || !r.ok) throw new Error((r&&r.message)||'저장하지 못했습니다.');
+    _drive.folderId=id; _drive.folderName=name; _drive.loaded=true; _keyFolderIds={};
+    try{ localStorage.removeItem(_driveLaterKey()); }catch(e){}
+    closeDriveSetup(); _updateUploadFolderInfo();
+    toast('✓ 악보 저장소 연결: '+name);
+  }finally{ setLoading(false); }
+}
+// 새 폴더 만들기
+async function driveCreateFolder(){
+  var name=(document.getElementById('drive-new-name').value||'').trim() || 'Worship Set List 악보';
+  var tokenP=_googleToken();
+  try{
+    var token=await tokenP;
+    setLoading(true,'폴더 만드는 중...');
+    var f; try{ f=await _driveNewFolder(name, null, token); }finally{ setLoading(false); }
+    await _saveDriveFolder(f.id, f.name||name);
+  }catch(e){ toast(e.message); }
+}
+// 이미 쓰는 폴더 고르기 (Google Picker)
+async function drivePickFolder(){
+  var tokenP=_googleToken();
+  try{
+    var token=await tokenP;
+    setLoading(true,'폴더 목록 여는 중...');
+    try{
+      await _loadScript('https://apis.google.com/js/api.js');
+      await new Promise(function(resolve){ gapi.load('picker', { callback: resolve }); });
+    }finally{ setLoading(false); }
+    var view=new google.picker.DocsView(google.picker.ViewId.FOLDERS)
+      .setIncludeFolders(true).setSelectFolderEnabled(true)
+      .setMimeTypes('application/vnd.google-apps.folder')
+      .setMode(google.picker.DocsViewMode.LIST);
+    closeDriveSetup();   // 폴더 고르기 창이 앱 창 뒤에 가려지지 않게
+    new google.picker.PickerBuilder()
+      .addView(view).setOAuthToken(token).setDeveloperKey(GOOGLE_API_KEY).setAppId(GOOGLE_APP_ID)
+      .setTitle('악보 폴더 고르기').setLocale('ko')
+      .setCallback(function(d){
+        if(d.action===google.picker.Action.PICKED && d.docs && d.docs[0]){
+          _saveDriveFolder(d.docs[0].id, d.docs[0].name).catch(function(e){ toast(e.message); });
+        }
+      })
+      .build().setVisible(true);
+  }catch(e){ toast(e.message); }
+}
+function _updateUploadFolderInfo(){
+  var el=document.getElementById('upload-folder-info'); if(!el) return;
+  el.textContent = !_drive.loaded ? '악보 저장소: 확인 중...'
+    : _drive.folderId ? '악보 저장소: 📁 '+(_drive.folderName||'(이름 없음)')
+    : '악보 저장소가 아직 연결되지 않았습니다. 아래 "저장소 연결·폴더 바꾸기"를 눌러 주세요.';
+}
+
+// ── 사진 → 흑백 PNG / 여러 장 → PDF ──
+async function _decodeImage(file){
+  try{ if(window.createImageBitmap) return await createImageBitmap(file); }catch(e){}
+  var url=URL.createObjectURL(file);
+  try{ var img=new Image(); img.src=url; await img.decode(); return img; }
+  catch(e){ URL.revokeObjectURL(url); throw new Error('"'+file.name+'" 사진을 이 기기에서 열 수 없습니다. JPG나 PNG로 바꿔서 올려 주세요.'); }
+}
+function _imgSize(src){ return { w: src.naturalWidth||src.width, h: src.naturalHeight||src.height }; }
+// 흰 바탕에 그려서 흑백 밝기값(한 칸 1바이트)으로
+function _grayPixels(src, maxSide){
+  var sz=_imgSize(src), s=Math.min(1, maxSide/Math.max(sz.w, sz.h));
+  var w=Math.max(1,Math.round(sz.w*s)), h=Math.max(1,Math.round(sz.h*s));
+  var c=document.createElement('canvas'); c.width=w; c.height=h;
+  var ctx=c.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,w,h); ctx.drawImage(src,0,0,w,h);
+  var d=ctx.getImageData(0,0,w,h).data, g=new Uint8Array(w*h), hist=new Uint32Array(256);
+  for(var i=0,j=0;i<g.length;i++,j+=4){ g[i]=(d[j]*299+d[j+1]*587+d[j+2]*114+500)/1000|0; hist[g[i]]++; }
+  // 종이 바탕을 흰색으로 — 가장 많은 밝은 부분(종이)을 흰색 기준으로 삼아 누런 빛·그림자를 덜어냄
+  var cut=g.length*0.75, acc=0, white=255;
+  for(var v=0;v<256;v++){ acc+=hist[v]; if(acc>=cut){ white=v; break; } }
+  if(white>=128 && white<250){ var lut=new Uint8Array(256); for(var k=0;k<256;k++) lut[k]=Math.min(255, Math.round(k*255/white)); for(i=0;i<g.length;i++) g[i]=lut[g[i]]; }
+  return { w:w, h:h, gray:g, canvas:c, ctx:ctx };
+}
+// PNG 줄 단위 압축 자료(필터 + zlib) — PNG의 IDAT와 PDF 그림에 같이 씀
+async function _grayZlib(p){
+  var w=p.w, h=p.h, g=p.gray, raw=new Uint8Array((w+1)*h);
+  for(var y=0;y<h;y++){
+    var o=y*(w+1), r=y*w; raw[o]= y ? 2 : 0;   // 둘째 줄부터 "윗줄과의 차이"(Up 필터) — 악보는 이 방식이 잘 줄어듦
+    if(y) for(var x=0;x<w;x++) raw[o+1+x]=(g[r+x]-g[r-w+x])&255;
+    else  raw.set(g.subarray(0,w), 1);
+  }
+  var cs=new CompressionStream('deflate');
+  return new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(cs)).arrayBuffer());
+}
+var _crcT=null;
+function _crc32(parts){
+  if(!_crcT){ _crcT=new Uint32Array(256); for(var n=0;n<256;n++){ var c=n; for(var k=0;k<8;k++) c = c&1 ? 0xEDB88320^(c>>>1) : c>>>1; _crcT[n]=c>>>0; } }
+  var crc=0xFFFFFFFF;
+  parts.forEach(function(b){ for(var i=0;i<b.length;i++) crc=_crcT[(crc^b[i])&255]^(crc>>>8); });
+  return (crc^0xFFFFFFFF)>>>0;
+}
+function _u32(v){ return new Uint8Array([v>>>24&255, v>>>16&255, v>>>8&255, v&255]); }
+function _pngChunk(type, data){
+  var t=new TextEncoder().encode(type);
+  return [_u32(data.length), t, data, _u32(_crc32([t, data]))];
+}
+async function _grayPngBlob(p){
+  if(typeof CompressionStream==='undefined'){   // 오래된 기기 — 그림판 기능으로 저장(흑백 색은 그대로)
+    var id=p.ctx.getImageData(0,0,p.w,p.h), d=id.data;
+    for(var i=0,j=0;i<p.gray.length;i++,j+=4){ d[j]=d[j+1]=d[j+2]=p.gray[i]; d[j+3]=255; }
+    p.ctx.putImageData(id,0,0);
+    return await new Promise(function(r){ p.canvas.toBlob(r,'image/png'); });
+  }
+  var ihdr=new Uint8Array(13); ihdr.set(_u32(p.w),0); ihdr.set(_u32(p.h),4); ihdr[8]=8; ihdr[9]=0;   // 8비트 흑백
+  var z=await _grayZlib(p);
+  var parts=[new Uint8Array([137,80,78,71,13,10,26,10])]
+    .concat(_pngChunk('IHDR',ihdr), _pngChunk('IDAT',z), _pngChunk('IEND',new Uint8Array(0)));
+  return new Blob(parts, { type:'image/png' });
+}
+// 흑백 그림 여러 장 → PDF (그림 자료를 PDF 안에 그대로 넣음)
+function _grayPdfBlob(pages){
+  var enc=new TextEncoder(), parts=[], off=0, xref=[];
+  function put(x){ var b = typeof x==='string' ? enc.encode(x) : x; parts.push(b); off+=b.length; }
+  function obj(n){ xref[n]=off; put(n+' 0 obj\n'); }
+  var n=pages.length, kids=[];
+  for(var i=0;i<n;i++) kids.push((3+i*3)+' 0 R');
+  put('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n');
+  obj(1); put('<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
+  obj(2); put('<< /Type /Pages /Count '+n+' /Kids ['+kids.join(' ')+'] >>\nendobj\n');
+  pages.forEach(function(p, i){
+    var po=3+i*3, so=po+1, io=po+2;
+    var k=842/Math.max(p.w,p.h), W=+(p.w*k).toFixed(2), H=+(p.h*k).toFixed(2);   // 긴 쪽을 A4 높이(842pt)에 맞춤
+    var cs='q '+W+' 0 0 '+H+' 0 0 cm /Im0 Do Q';
+    obj(po); put('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 '+W+' '+H+'] /Resources << /XObject << /Im0 '+io+' 0 R >> >> /Contents '+so+' 0 R >>\nendobj\n');
+    obj(so); put('<< /Length '+cs.length+' >>\nstream\n'+cs+'\nendstream\nendobj\n');
+    obj(io); put('<< /Type /XObject /Subtype /Image /Width '+p.w+' /Height '+p.h+' /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode /DecodeParms << /Predictor 15 /Colors 1 /BitsPerComponent 8 /Columns '+p.w+' >> /Length '+p.z.length+' >>\nstream\n');
+    put(p.z); put('\nendstream\nendobj\n');
+  });
+  var total=3+n*3, xo=off, x='xref\n0 '+total+'\n0000000000 65535 f \n';
+  for(var j=1;j<total;j++) x+=String(xref[j]).padStart(10,'0')+' 00000 n \n';
+  put(x+'trailer\n<< /Size '+total+' /Root 1 0 R >>\nstartxref\n'+xo+'\n%%EOF\n');
+  return new Blob(parts, { type:'application/pdf' });
+}
+// 고른 파일 → 올릴 파일 하나 { blob, ext }
+async function _prepareScoreFile(files){
+  var pdfs=files.filter(function(f){ return f.type==='application/pdf' || /\.pdf$/i.test(f.name); });
+  if(pdfs.length){
+    if(files.length>1) throw new Error('PDF는 한 번에 하나만 올릴 수 있습니다. 사진과 함께 고르지 말아 주세요.');
+    if(files[0].size>SCORE_MAX_BYTES) throw new Error('PDF가 너무 큽니다 ('+(files[0].size/1e6).toFixed(1)+'MB). 3MB 이하로 줄여서 올려 주세요.');
+    return { blob: files[0].slice(0, files[0].size, 'application/pdf'), ext:'pdf' };
+  }
+  var single=files.length===1, f0=files[0];
+  if(single && (f0.type==='image/png' || /\.png$/i.test(f0.name)) && f0.size<=SCORE_MAX_BYTES){
+    return { blob: f0.slice(0, f0.size, 'image/png'), ext:'png' };   // 이미 PNG이고 크지 않으면 그대로
+  }
+  if(!single && typeof CompressionStream==='undefined') throw new Error('이 기기에서는 여러 장을 PDF로 묶을 수 없습니다. 한 장씩 올려 주세요.');
+  var srcs=[];
+  for(var i=0;i<files.length;i++){
+    setLoading(true,'사진 준비 중... ('+(i+1)+'/'+files.length+')');
+    srcs.push(await _decodeImage(files[i]));
+  }
+  var side=SCORE_MAX_SIDE;
+  for(var tries=0;tries<10;tries++){   // 3MB를 넘으면 조금씩 줄여서 다시
+    var out;
+    if(single){
+      out={ blob: await _grayPngBlob(_grayPixels(srcs[0], side)), ext:'png' };
+    }else{
+      var pages=[];
+      for(var k=0;k<srcs.length;k++){ var p=_grayPixels(srcs[k], side); p.z=await _grayZlib(p); p.gray=null; pages.push(p); }
+      out={ blob: _grayPdfBlob(pages), ext:'pdf' };
+    }
+    if(out.blob.size<=SCORE_MAX_BYTES) return out;
+    side=Math.round(side*0.85);
+  }
+  throw new Error('악보를 3MB 이하로 줄이지 못했습니다. 장 수를 나눠서 올려 주세요.');
+}
+
+// ── 이름 붙이기: "키 - 곡 제목.확장자" (키를 모르면 "곡 제목.확장자") ──
+function _scoreBaseName(key, title){
+  var t=title.replace(/[\\\/:*?"<>|]/g,' ').replace(/\s+/g,' ').trim();
+  return key ? key+' - '+t : t;
+}
+function _uniqueFileName(base, ext){
+  var names={}; (_adminScoreCache||[]).forEach(function(s){ names[String(s.file_name||'').toLowerCase()]=1; });
+  var name=base+'.'+ext;
+  for(var i=2; names[name.toLowerCase()] && i<100; i++) name=base+' ('+i+').'+ext;
+  return name;
+}
+
+function onUploadFilesChange(){
+  var fs=Array.prototype.slice.call(document.getElementById('up-files').files||[]);
+  var info=document.getElementById('up-file-info');
+  info.classList.remove('err');
+  if(!fs.length){ info.textContent=''; return; }
+  var pdf=fs.some(function(f){ return f.type==='application/pdf' || /\.pdf$/i.test(f.name); });
+  info.textContent = pdf ? (fs.length>1 ? 'PDF는 한 번에 하나만 올릴 수 있습니다.' : 'PDF 1개 → 그대로 올립니다.')
+    : fs.length>1 ? '사진 '+fs.length+'장 → 흑백으로 바꿔 PDF 1개로 묶어서 올립니다.'
+    : '사진 1장 → 흑백 PNG로 바꿔서 올립니다.';
+}
+async function uploadScore(){
+  if(_uploadBusy) return;
+  var title=document.getElementById('up-title').value.trim();
+  var key=document.getElementById('up-key').value;
+  var files=Array.prototype.slice.call(document.getElementById('up-files').files||[]);
+  var info=document.getElementById('up-file-info');
+  if(!title){ toast('곡 제목을 입력해 주세요.'); return; }
+  if(!files.length){ toast('올릴 악보 파일을 골라 주세요.'); return; }
+  if(!_drive.folderId){ openDriveSetup(); toast('먼저 악보 저장소를 연결해 주세요.'); return; }
+  var tokenP=_googleToken(); tokenP.catch(function(){});   // ★ 누른 순간 구글 창을 열어야 막히지 않음
+  _uploadBusy=true; document.getElementById('up-btn').disabled=true;
+  setLoading(true,'악보 준비 중...');
+  try{
+    var made=await _prepareScoreFile(files);
+    setLoading(true,'구글 연결 중...');
+    var token=await tokenP;
+    if(!_adminScoreCache) await _loadAdminScoreCache();
+    var name=_uniqueFileName(_scoreBaseName(key, title), made.ext);
+    setLoading(true,'올리는 중...');
+    var folderId=await _keyFolder(key||'기타', token);
+    var f=await _driveUpload(made.blob, name, folderId, token);
+    await _driveShareAnyone(f.id, token);
+    var song={ song_title:name.replace(/\.[^.]+$/,''), file_name:name, file_url:'https://drive.google.com/file/d/'+f.id+'/view?usp=drivesdk', uploaded_by:'upload' };
+    var r=await gas('adminAddSong', song);
+    if(!r || !r.ok) throw new Error('드라이브에는 올렸지만 악보 목록에 등록하지 못했습니다: '+((r&&r.message)||''));
+    document.getElementById('up-title').value=''; document.getElementById('up-key').value='';
+    document.getElementById('up-files').value=''; info.textContent='✓ 올리기 완료: '+name+' ('+(made.blob.size/1e6).toFixed(1)+'MB)';
+    toast('✓ 악보를 올리고 등록했습니다.');
+    _loadAdminScoreCache();
+    if(document.getElementById('score-list-section').style.display!=='none') loadScoreList();
+  }catch(e){
+    info.textContent='⚠ '+e.message; info.classList.add('err'); toast(e.message);
+  }finally{
+    setLoading(false); _uploadBusy=false; document.getElementById('up-btn').disabled=false;
+  }
+}
+
 // ══════════════════════════════════════════════
 // 관리자 악보 캐시 (중복 체크용)
 var _adminScoreCache = null;
