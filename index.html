@@ -2113,7 +2113,9 @@ function applyFitMode(){
 async function renderFitPdfPage(){
   if(!S.pdfDoc) return;
 
-  var page = await S.pdfDoc.getPage(S.pdfPage);
+  var doc  = S.pdfDoc;
+  var page = await doc.getPage(S.pdfPage);
+  if(doc !== S.pdfDoc) return;   // ★ 그리는 동안 다른 곡으로 넘어감 → 이전 곡을 그리지 않음
   var bVp  = page.getViewport({scale: 1});
 
   // ★ 3) zoom 보정된 논리 픽셀 크기 사용
@@ -2237,8 +2239,12 @@ function setPreloadBar(pct){ document.getElementById('preload-bar-fill').style.w
 function renderDots(){ document.getElementById('viewer-dots').innerHTML=S.viewerSongs.map(function(_,i){ var loaded=!!(S.preloadCache[S.viewerSongs[i]&&S.viewerSongs[i].file_url]); return '<div class="dot '+(i===S.viewerIdx?'active':'')+' '+(loaded?'loaded':'')+'" onclick="goSong('+i+')"></div>'; }).join(''); }
 function updateDotLoaded(idx){ var dots=document.querySelectorAll('#viewer-dots .dot'); if(dots[idx])dots[idx].classList.add('loaded'); }
 function updateViewerHeader(idx){ var s=S.viewerSongs[idx]; document.getElementById('viewer-song-num').textContent='곡 '+(idx+1)+' / '+S.viewerSongs.length; document.getElementById('viewer-song-name').textContent=s?s.song_title:''; }
+var _loadSeq=0;   // 곡을 열 때마다 1씩 증가 — 늦게 끝난 이전 곡의 불러오기·그리기가 지금 곡 위에 겹치지 않게
 async function loadAndShow(idx){
   if(idx<0||idx>=S.viewerSongs.length)return;
+  var seq=++_loadSeq;
+  // ★ 이전 곡 PDF를 먼저 닫아, 아직 그리는 중이던 이전 곡(쪽 넘김·확대 포함)이 화면에 다시 나타나지 않게 함
+  if(S.pdfDoc){S.pdfDoc.destroy();S.pdfDoc=null;}
   S.viewerIdx=idx; S.pdfPage=1;
   S.panX=0; S.panY=0;
   S.pdfZoom=1.0;   // ★ 곡이 바뀌면 항상 악보 전체가 보이는 기본 크기로 시작
@@ -2255,6 +2261,7 @@ async function loadAndShow(idx){
   if(!song.file_url){showEl('msg');document.getElementById('viewer-msg').textContent='⚠ 파일 링크가 없습니다.';return;}
   var r=S.preloadCache[song.file_url];
   if(!r){try{r=await fetchScore(song.file_url);}catch(e){r={ok:false,message:navigator.onLine?e.message:'인터넷 연결이 없고, 이 기기에 보관된 악보도 없습니다.'};}}
+  if(seq!==_loadSeq) return;   // 받는 동안 다른 곡으로 넘어감 → 이 곡은 그리지 않음
   if(!r||!r.ok){
     // ★ 진단 정보 강화 — 어떤 곡, 어떤 URL이 실패했는지 화면에 표시
     var urlTail = '';
@@ -2280,17 +2287,19 @@ async function loadAndShow(idx){
   if(ft!=='pdf'&&ft!=='image'){ var sn=sniffType(r.base64); if(sn){ ft=sn.t; if(sn.m) mime=sn.m; } else ft=guessType(song.file_name); }
   if(ft==='pdf'){
     if(S.pdfDoc){S.pdfDoc.destroy();S.pdfDoc=null;}
-    try{ await showPdf(r.base64); }
-    catch(e){ console.error('[loadAndShow] PDF 열기 실패:', song.song_title, e); showEl('msg'); document.getElementById('viewer-msg').textContent='⚠ PDF 파일을 열 수 없습니다. 파일이 손상되었거나 PDF가 아닐 수 있습니다.'; }
+    try{ await showPdf(r.base64, seq); }
+    catch(e){ if(seq!==_loadSeq) return; console.error('[loadAndShow] PDF 열기 실패:', song.song_title, e); showEl('msg'); document.getElementById('viewer-msg').textContent='⚠ PDF 파일을 열 수 없습니다. 파일이 손상되었거나 PDF가 아닐 수 있습니다.'; }
   }
   else if(ft==='image')showImage(r.base64,mime);
   else{showEl('msg');document.getElementById('viewer-msg').textContent='⚠ 지원하지 않는 파일 형식입니다.';}
 }
 function goSong(idx){ loadAndShow(idx); }
-async function showPdf(b64){
+async function showPdf(b64, seq){
   var bin=atob(b64),bytes=new Uint8Array(bin.length);
   for(var i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);
-  S.pdfDoc=await pdfjsLib.getDocument({data:bytes}).promise;
+  var doc=await pdfjsLib.getDocument({data:bytes}).promise;
+  if(seq!==undefined && seq!==_loadSeq){ doc.destroy(); return; }   // 여는 동안 다른 곡으로 넘어감
+  S.pdfDoc=doc;
   S.pdfTotalPages=S.pdfDoc.numPages; S.pdfPage=1;
   S.imgIsSquare=false;
   document.getElementById('viewer-canvas-wrap').classList.remove('square-mode');
@@ -2387,6 +2396,7 @@ function showEl(type){
   msg.style.display = type==='msg'   ? 'block' : 'none';
   // 이미지가 아닐 때 square-mode와 imgIsSquare 초기화
   if(type !== 'image'){
+    img.onload = null;   // ★ 이전 그림 곡이 늦게 다 불러와져도 다시 나타나지 않게
     S.imgIsSquare = false;
     document.getElementById('viewer-canvas-wrap').classList.remove('square-mode');
   }
@@ -2464,7 +2474,9 @@ function applyZoom(){
 // zoom 시 PDF 렌더: syncAnnotationCanvasSize(skipLoad=true) 후 loadAnnotation 1회 호출
 async function _renderPdfPageForZoom(){
   if(!S.pdfDoc || S.fitMode) return;
-  var page = await S.pdfDoc.getPage(S.pdfPage);
+  var doc  = S.pdfDoc;
+  var page = await doc.getPage(S.pdfPage);
+  if(doc !== S.pdfDoc) return;   // ★ 확대하는 동안 다른 곡으로 넘어감 → 이전 곡을 그리지 않음
   var bVp  = page.getViewport({scale:1});
   var sz   = getWrapLogicalSize();
   var scale = Math.min(sz.w / bVp.width, sz.h / bVp.height) * S.pdfZoom;
