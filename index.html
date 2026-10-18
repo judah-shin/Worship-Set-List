@@ -3808,6 +3808,7 @@ function init(){
   pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
   setupPalmRejection();   // ★ setupGestures보다 먼저 받는 위치(document 캡처)에서 손바닥·펜슬 터치를 걸러냄
   setupGestures();
+  setupControlTapGuard();   // ★ 악보 위 버튼(‹ ›, 펜 도구)을 빠르게 두 번 눌러도 "악보 두 번 탭"으로 오인하지 않게
   setupKeyboard();
   setupOrientationHandler();
   setupAnnotationCanvas();
@@ -3817,6 +3818,18 @@ function init(){
   if(navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(function(){});
   scorePurgeOld();
   _updateInstallBtns();   // 설치된 앱이 아니면 "📲 앱으로 설치하기" 버튼 표시
+}
+
+// 악보 위 버튼 보호 — ‹ › 버튼과 펜 도구 막대는 악보 화면(viewer-canvas-wrap) 안에 있어서,
+// 버튼을 빠르게 두 번 누르면 그 터치가 악보까지 전달되어 "두 번 탭"(전체보기 끄기·켜기)으로 처리되었다.
+// 버튼의 터치는 버튼에서 멈추게 한다. (버튼 자체의 동작 onclick은 그대로)
+function setupControlTapGuard(){
+  ['viewer-nav','pen-toolbar'].forEach(function(id){
+    var el=document.getElementById(id); if(!el) return;
+    ['touchstart','touchend','dblclick'].forEach(function(ev){
+      el.addEventListener(ev, function(e){ e.stopPropagation(); }, {passive:true});
+    });
+  });
 }
 
 // ══════════════════════════════════════════════
