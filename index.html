@@ -2175,7 +2175,7 @@ async function renderFitPdfPage(){
 
   var scale = Math.min(wW / bVp.width, wH / bVp.height);
 
-  var dpr      = Math.min(window.devicePixelRatio || 1, 3);
+  var dpr      = Math.min(window.devicePixelRatio || 1, 3) * getZoom();   // ★ 컴퓨터는 앱 전체가 1.3배로 보이므로 그만큼 촘촘히 그려야 흐리지 않음 (아이패드·휴대폰은 ×1)
   var renderVp = page.getViewport({scale: scale * dpr});
 
   var canvas  = document.getElementById('pdf-canvas');
@@ -2373,7 +2373,7 @@ async function renderPdfPage(){
 
   var scale = Math.min(wW / bVp.width, wH / bVp.height) * S.pdfZoom;
 
-  var dpr    = Math.min(window.devicePixelRatio || 1, 3);
+  var dpr    = Math.min(window.devicePixelRatio || 1, 3) * getZoom();   // ★ 컴퓨터는 앱 전체가 1.3배로 보이므로 그만큼 촘촘히 그려야 흐리지 않음 (아이패드·휴대폰은 ×1)
   var vp     = page.getViewport({scale: scale * dpr});
   var canvas = document.getElementById('pdf-canvas');
   canvas.width  = vp.width;
@@ -2530,7 +2530,7 @@ async function _renderPdfPageForZoom(){
   var bVp  = page.getViewport({scale:1});
   var sz   = getWrapLogicalSize();
   var scale = Math.min(sz.w / bVp.width, sz.h / bVp.height) * S.pdfZoom;
-  var dpr   = Math.min(window.devicePixelRatio || 1, 3);
+  var dpr   = Math.min(window.devicePixelRatio || 1, 3) * getZoom();   // ★ 컴퓨터는 앱 전체가 1.3배로 보이므로 그만큼 촘촘히 그려야 흐리지 않음 (아이패드·휴대폰은 ×1)
   var vp    = page.getViewport({scale: scale * dpr});
   var canvas = document.getElementById('pdf-canvas');
   canvas.width  = vp.width;
