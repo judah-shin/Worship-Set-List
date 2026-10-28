@@ -826,6 +826,10 @@ html, body { touch-action: manipulation; }
 /* ★ 앱으로 설치하기 — 버튼과 기기별 안내 그림 (설치된 앱 안에서는 숨김) */
 .install-btn { display: none; margin-top: 18px; min-height: 44px; padding: 10px 20px; font-size: 14px; font-family: 'Noto Sans KR', sans-serif; color: var(--gold-light); background: rgba(var(--accent-rgb),.08); border: 1px dashed rgba(var(--accent-rgb),.55); border-radius: 22px; cursor: pointer; }
 .install-btn.show { display: inline-flex; align-items: center; gap: 6px; }
+#screen-home { position: relative; }
+.home-op-btn { position: absolute; top: 10px; right: 10px; display: none; align-items: center; justify-content: center; gap: 6px; min-width: 44px; min-height: 44px; padding: 0 12px; font-size: 14px; font-family: 'Noto Sans KR', sans-serif; color: var(--gold-light); background: rgba(var(--accent-rgb),.08); border: 1px solid rgba(var(--accent-rgb),.35); border-radius: 22px; cursor: pointer; }
+.home-op-btn.show { display: inline-flex; }
+.home-op-btn:hover { background: rgba(var(--accent-rgb),.16); }
 .install-btn:hover { background: rgba(var(--accent-rgb),.16); }
 #install-dialog { position: fixed; inset: 0; z-index: 9997; background: rgba(var(--deep-rgb),.9); backdrop-filter: blur(8px); display: none; align-items: center; justify-content: center; }
 #install-dialog.show { display: flex; }
@@ -878,6 +882,8 @@ html, body { touch-action: manipulation; }
 
   <!-- HOME -->
   <div id="screen-home" class="screen">
+    <!-- ★ 운영자 단추 — 팀 관리자 기기에만 보임. 운영자 열쇠가 있으면 바로 운영자 화면으로 -->
+    <button type="button" class="home-op-btn" id="home-op-btn" onclick="openOperatorFromHome()" aria-label="운영자 로그인">🔑</button>
     <div class="home-logo">
       <svg width="48" height="60" viewBox="0 0 64 80" fill="none">
         <rect x="26" y="4"  width="12" height="72" rx="4" fill="url(#cg2)"/>
@@ -1155,8 +1161,10 @@ html, body { touch-action: manipulation; }
   <!-- ★ 운영자 화면 — 팀 만들기·목록·코드 재발급·정지·삭제 (팀의 악보·Set List 내용은 보지 않음) -->
   <div id="screen-operator" class="screen">
     <div class="app-header">
+      <button class="home-btn" id="op-home-btn" onclick="showScreen('home')" aria-label="찬양팀 홈으로">🏠</button>
+      <div class="header-sep" id="op-home-sep"></div>
       <h2>운영자</h2>
-      <button class="op-btn" onclick="logout()" style="margin-left:auto">로그아웃</button>
+      <button class="op-btn" onclick="logoutOperator()" style="margin-left:auto">운영자 로그아웃</button>
     </div>
     <div class="op-body">
       <div class="op-section">
@@ -1329,7 +1337,7 @@ function escHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&l
 // ══════════════════════════════════════════════
 //  API 호출 (Vercel 버전 B)
 // ══════════════════════════════════════════════
-// ★ 입장권 — 서버가 발급. 팀 관리자·팀원은 기기에 기억(다음부터 코드 입력 생략), 운영자는 기억하지 않음
+// ★ 입장권 — 서버가 발급. 팀 관리자·팀원은 기기에 기억(다음부터 코드 입력 생략), 운영자 열쇠는 아래 OP_KEY에 따로 보관
 var SESSION_KEY='wsl_session';
 var _session=null;   // { token, role:'ta'|'tm'|'op', teamName }
 function _saveSession(){
@@ -1341,6 +1349,18 @@ function _saveSession(){
 function _loadSession(){
   try{ var v=JSON.parse(localStorage.getItem(SESSION_KEY)||'null'); return (v&&v.token)?v:null; }catch(e){ return null; }
 }
+// ★ 운영자 열쇠 — 찬양팀 입장권과 따로, 운영자 비밀번호를 넣은 이 기기에만 30일 보관
+//   (찬양팀 관리자로 들어온 채로 운영자 화면을 함께 쓸 수 있음)
+var OP_KEY='wsl_op';
+var OP_FNS={ listTeams:1, createTeam:1, setTeamStatus:1, reissueTeamCodes:1, deleteTeam:1, claimLegacyData:1 };
+function _saveOpToken(t){
+  _opToken=t||null;
+  try{ if(_opToken) localStorage.setItem(OP_KEY,_opToken); else localStorage.removeItem(OP_KEY); }catch(e){}
+}
+function _loadOpToken(){
+  try{ var t=localStorage.getItem(OP_KEY); return (t && +t.split('.')[3]>Date.now()) ? t : null; }catch(e){ return null; }
+}
+var _opToken=_loadOpToken();
 // ★ 인터넷이 끊겨도 Set List를 볼 수 있도록, 마지막으로 받은 캘린더·Set List 내용을 기기에 기억 (최근 60개)
 var OFFLINE_KEY='wsl_offline';
 var OFFLINE_FNS={ getSetListsByDate:1, getDatesWithSetList:1 };
@@ -1365,7 +1385,7 @@ async function gas(fn){
     res=await fetch('/api/gas',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({fn:fn,payload:payload,token:_session?_session.token:null})
+      body:JSON.stringify({fn:fn,payload:payload,token:(OP_FNS[fn]&&_opToken)?_opToken:(_session?_session.token:null)})
     });
   }catch(e){
     // 인터넷 끊김 → 기억해 둔 내용이 있으면 그것을 보여 줌
@@ -1379,9 +1399,16 @@ async function gas(fn){
   if(!res.ok) throw new Error('API 오류: '+res.status);
   var r=await res.json();
   if(offKey && r && r.ok) _offPut(offKey, r);
+  // ★ 운영자 열쇠가 만료된 경우 → 열쇠만 지우고 찬양팀 입장은 그대로
+  if(r && r.authRequired && OP_FNS[fn]){ _opExpired(); return r; }
   // ★ 입장이 만료되었거나 코드가 재발급된 경우 → 입장 화면으로
   if(r && r.authRequired && _session){ _sessionExpired(r.message); }
   return r;
+}
+function _opExpired(){
+  _saveOpToken(null); _syncOpBtn();
+  if(document.getElementById('screen-operator').classList.contains('active')) showScreen(_session?'home':'gate');
+  toast('운영자 열쇠가 만료되었습니다. 운영자 비밀번호를 다시 입력해 주세요.');
 }
 function _sessionExpired(msg){
   _session=null; _saveSession(); currentRole=null;
@@ -1414,25 +1441,59 @@ async function enterWithCode(){
   finally{ setLoading(false); }
 }
 function toggleOperatorLogin(){
+  if(_opToken){ goOperator(); return; }   // 이미 운영자 열쇠가 있으면 바로 운영자 화면
   var f=document.getElementById('gate-op-form');
   f.classList.toggle('show');
   if(f.classList.contains('show')) document.getElementById('op-password-input').focus();
 }
 async function loginOperator(){
   var el=document.getElementById('op-password-input');
-  var pw=el.value;
-  if(!pw){ toast('운영자 비밀번호를 입력하세요.'); return; }
+  if(await _opLogin(el.value)){ el.value=''; document.getElementById('gate-op-form').classList.remove('show'); }
+}
+// 운영자 비밀번호 확인 → 운영자 열쇠를 이 기기에 30일 보관 (찬양팀 입장은 건드리지 않음)
+async function _opLogin(pw){
+  if(!pw){ toast('운영자 비밀번호를 입력하세요.'); return false; }
   setLoading(true,'인증 중...');
   try{
     var r=await gas('verifyAdminPassword', pw);
-    if(!r.ok){ toast(r.message||'비밀번호가 틀렸습니다.'); return; }
-    _session={ token:r.token, role:'op', teamName:'' };
-    _saveSession();   // 운영자는 기기에 기억하지 않음
-    el.value=''; document.getElementById('gate-op-form').classList.remove('show');
-    currentRole='operator';
+    if(!r.ok){ toast(r.message||'비밀번호가 틀렸습니다.'); return false; }
+    _saveOpToken(r.token); _syncOpBtn();
     goOperator();
-  }catch(e){ toast('인증 오류: '+e.message); }
+    return true;
+  }catch(e){ toast('인증 오류: '+e.message); return false; }
   finally{ setLoading(false); }
+}
+// 홈 화면 오른쪽 위 단추 — 열쇠가 있으면 바로 운영자 화면, 없으면 비밀번호 묻기
+function openOperatorFromHome(){
+  if(_opToken){ goOperator(); return; }
+  document.getElementById('confirm-dialog').querySelector('h3').textContent='운영자 로그인';
+  document.getElementById('confirm-ok-btn').textContent='입장';
+  document.getElementById('confirm-msg').innerHTML=
+     '<div class="setedit-field"><label for="home-op-pw">운영자 비밀번호</label><input type="password" id="home-op-pw" autocomplete="current-password"/></div>'
+    +'<small style="color:var(--gold-dim)">이 기기에만 30일 동안 기억됩니다.</small>';
+  var pw=document.getElementById('home-op-pw');
+  pw.addEventListener('keydown',function(e){ if(e.key==='Enter'){ e.preventDefault(); doHomeOpLogin(); } });
+  document.getElementById('confirm-ok-btn').onclick=doHomeOpLogin;
+  document.getElementById('confirm-dialog').classList.add('show');
+  pw.focus();
+}
+async function doHomeOpLogin(){
+  var pw=document.getElementById('home-op-pw').value;
+  if(!pw){ toast('운영자 비밀번호를 입력하세요.'); return; }
+  closeConfirm();
+  await _opLogin(pw);
+}
+function logoutOperator(){
+  _saveOpToken(null); _syncOpBtn();
+  showScreen(_session?'home':'gate');
+  toast('운영자에서 로그아웃했습니다.');
+}
+// 홈 단추 모양 — 팀 관리자에게만 보이고, 열쇠가 있으면 "🛠 운영자"
+function _syncOpBtn(){
+  var b=document.getElementById('home-op-btn'); if(!b) return;
+  b.classList.toggle('show', !!(_session && _session.role==='ta'));
+  b.textContent = _opToken ? '🛠 운영자' : '🔑';
+  b.setAttribute('aria-label', _opToken ? '운영자 화면' : '운영자 로그인');
 }
 // 팀 관리자(ta)·부관리자(ts) → 기존 '관리자', 팀원(tm) → 기존 '사용자' 화면 구성을 그대로 사용
 // (부관리자에게 없는 기능은 leader-only 표시와 서버 권한으로 따로 막음)
@@ -1464,10 +1525,12 @@ function applyRole(){
   badge.textContent=label+team;
   var sb=document.getElementById('sub-admin-btn');
   if(sb) sb.textContent = (_session&&_session.subEnabled) ? '👔 부관리자 끄기 (사용 중)' : '👔 부관리자 코드 만들기';
+  _syncOpBtn();
 }
 function logout(){
   if(_session && _session.role!=='op' && !confirm('로그아웃하면 다음에 코드를 다시 입력해야 합니다.\n로그아웃할까요?')) return;
   currentRole=null; _session=null; _saveSession(); showScreen('gate');
+  _saveOpToken(null);   // 운영자 열쇠도 지움 (다른 사람이 이 기기를 쓸 때를 대비)
   _gToken=null; _drive={ folderId:null, folderName:null, loaded:false }; _keyFolderIds={};   // 구글 출입증·저장소 정보도 지움
   scoreClearAll();   // 기기에 보관한 악보·Set List도 지움 (다른 팀이 이 기기를 쓸 때를 대비)
   try{ localStorage.removeItem(OFFLINE_KEY); }catch(e){}
@@ -1561,7 +1624,10 @@ async function copyCode(id){
 // ══════════════════════════════════════════════
 var _opTeams=[];
 function goOperator(){
-  if(!_session||_session.role!=='op'){ showScreen('gate'); return; }
+  if(!_opToken){ showScreen(_session?'home':'gate'); return; }
+  var hasTeam=!!_session;   // 찬양팀으로 들어와 있으면 🏠로 돌아갈 수 있음
+  document.getElementById('op-home-btn').style.display=hasTeam?'':'none';
+  document.getElementById('op-home-sep').style.display=hasTeam?'':'none';
   showScreen('operator');
   loadTeamsOp();
 }

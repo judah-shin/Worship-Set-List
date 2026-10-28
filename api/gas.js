@@ -28,7 +28,7 @@ const MAX_SETS_PER_DAY = 5;
 //   · 운영자 입장권은 ADMIN_PASSWORD로 서명 → 비밀번호를 바꾸면 운영자 입장권만 무효
 //   · 팀 코드는 SUPABASE_SERVICE_KEY로 암호화 → 운영자 비밀번호를 바꿔도 팀 코드는 그대로
 // ================================================================
-const OP_TOKEN_HOURS   = 24;          // 운영자: 하루
+const OP_TOKEN_DAYS    = 30;          // 운영자: 30일 (운영자 비밀번호를 넣은 기기에만 보관)
 const TEAM_TOKEN_DAYS  = 180;         // 팀 관리자·팀원: 기기에 기억 (코드 재발급 전까지 유지)
 
 function _opSecret() {
@@ -81,7 +81,7 @@ function _verOf(role, team) {
 }
 
 function issueToken(role, teamId, ver) {
-  const ms = role === 'op' ? OP_TOKEN_HOURS * 3600e3 : TEAM_TOKEN_DAYS * 86400e3;
+  const ms = (role === 'op' ? OP_TOKEN_DAYS : TEAM_TOKEN_DAYS) * 86400e3;
   const body = [role, teamId || 0, ver || 0, Date.now() + ms].join('.');
   const secret = role === 'op' ? _opSecret() : _teamSecret();
   return body + '.' + _hmac(secret, body);
