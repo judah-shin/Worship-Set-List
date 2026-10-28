@@ -882,7 +882,7 @@ html, body { touch-action: manipulation; }
 
   <!-- HOME -->
   <div id="screen-home" class="screen">
-    <!-- ★ 운영자 단추 — 팀 관리자 기기에만 보임. 운영자 열쇠가 있으면 바로 운영자 화면으로 -->
+    <!-- ★ 운영자 단추 — 운영자 비밀번호를 넣은 적 있는 기기의 팀 관리자에게만 보임. 열쇠가 있으면 바로 운영자 화면으로 -->
     <button type="button" class="home-op-btn" id="home-op-btn" onclick="openOperatorFromHome()" aria-label="운영자 로그인">🔑</button>
     <div class="home-logo">
       <svg width="48" height="60" viewBox="0 0 64 80" fill="none">
@@ -1352,6 +1352,8 @@ function _loadSession(){
 // ★ 운영자 열쇠 — 찬양팀 입장권과 따로, 운영자 비밀번호를 넣은 이 기기에만 30일 보관
 //   (찬양팀 관리자로 들어온 채로 운영자 화면을 함께 쓸 수 있음)
 var OP_KEY='wsl_op';
+var OP_DEVICE_KEY='wsl_op_device';   // 운영자 비밀번호를 한 번이라도 넣은 기기 표시 (열쇠가 만료돼도 🔑 단추를 남기기 위해)
+function _isOpDevice(){ try{ return !!localStorage.getItem(OP_DEVICE_KEY); }catch(e){ return false; } }
 var OP_FNS={ listTeams:1, createTeam:1, setTeamStatus:1, reissueTeamCodes:1, deleteTeam:1, claimLegacyData:1 };
 function _saveOpToken(t){
   _opToken=t||null;
@@ -1457,7 +1459,9 @@ async function _opLogin(pw){
   try{
     var r=await gas('verifyAdminPassword', pw);
     if(!r.ok){ toast(r.message||'비밀번호가 틀렸습니다.'); return false; }
-    _saveOpToken(r.token); _syncOpBtn();
+    _saveOpToken(r.token);
+    try{ localStorage.setItem(OP_DEVICE_KEY,'1'); }catch(e){}
+    _syncOpBtn();
     goOperator();
     return true;
   }catch(e){ toast('인증 오류: '+e.message); return false; }
@@ -1488,10 +1492,10 @@ function logoutOperator(){
   showScreen(_session?'home':'gate');
   toast('운영자에서 로그아웃했습니다.');
 }
-// 홈 단추 모양 — 팀 관리자에게만 보이고, 열쇠가 있으면 "🛠 운영자"
+// 홈 단추 모양 — 운영자 비밀번호를 넣은 적 있는 기기의 팀 관리자에게만 보이고, 열쇠가 있으면 "🛠 운영자"
 function _syncOpBtn(){
   var b=document.getElementById('home-op-btn'); if(!b) return;
-  b.classList.toggle('show', !!(_session && _session.role==='ta'));
+  b.classList.toggle('show', !!(_session && _session.role==='ta' && (_opToken || _isOpDevice())));
   b.textContent = _opToken ? '🛠 운영자' : '🔑';
   b.setAttribute('aria-label', _opToken ? '운영자 화면' : '운영자 로그인');
 }
@@ -1530,7 +1534,8 @@ function applyRole(){
 function logout(){
   if(_session && _session.role!=='op' && !confirm('로그아웃하면 다음에 코드를 다시 입력해야 합니다.\n로그아웃할까요?')) return;
   currentRole=null; _session=null; _saveSession(); showScreen('gate');
-  _saveOpToken(null);   // 운영자 열쇠도 지움 (다른 사람이 이 기기를 쓸 때를 대비)
+  _saveOpToken(null);   // 운영자 열쇠와 운영자 기기 표시도 지움 (다른 사람이 이 기기를 쓸 때를 대비)
+  try{ localStorage.removeItem(OP_DEVICE_KEY); }catch(e){}
   _gToken=null; _drive={ folderId:null, folderName:null, loaded:false }; _keyFolderIds={};   // 구글 출입증·저장소 정보도 지움
   scoreClearAll();   // 기기에 보관한 악보·Set List도 지움 (다른 팀이 이 기기를 쓸 때를 대비)
   try{ localStorage.removeItem(OFFLINE_KEY); }catch(e){}
