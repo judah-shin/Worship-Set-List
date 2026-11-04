@@ -734,7 +734,9 @@ html, body { touch-action: manipulation; }
 /* ══════════════════════════════════════
    STATS (선곡 통계) — 신규 추가 구역
 ══════════════════════════════════════ */
-.stats-body { padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+#screen-stats { overflow: hidden; padding-bottom: 0; }
+.stats-top { flex-shrink: 0; padding: 14px 14px 0; display: flex; flex-direction: column; gap: 12px; }
+.stats-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 14px 20px; display: flex; flex-direction: column; gap: 12px; }
 .stats-tabs { display: flex; gap: 6px; }
 .stats-tab {
   flex: 1; min-height: 44px; padding: 0 6px;
@@ -1142,7 +1144,8 @@ html, body { touch-action: manipulation; }
       <button class="back-btn" onclick="showScreen('home')">←</button>
       <h2>선곡 통계</h2>
     </div>
-    <div class="stats-body">
+    <!-- ★ 검색·기간 탭·안내 줄은 고정, 아래 곡 목록만 스크롤 -->
+    <div class="stats-top">
       <input type="search" class="stats-search" id="stats-search" placeholder="🔍 곡 제목 검색" aria-label="곡 제목 검색"
              oninput="onStatsSearch()" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
       <div class="stats-tabs" role="tablist" aria-label="통계 기간 선택">
@@ -1153,6 +1156,8 @@ html, body { touch-action: manipulation; }
       </div>
       <p class="stats-range" id="stats-range"></p>
       <p class="stats-sort-note" id="stats-sort-note">적게 부른 곡 → 오래전에 부른 곡 순서</p>
+    </div>
+    <div class="stats-body" id="stats-body">
       <div id="stats-list" role="list"></div>
       <button class="stats-more" id="stats-more" onclick="showMoreStats()" style="display:none">더 보기</button>
     </div>
@@ -4466,7 +4471,7 @@ async function goStats(){
   document.getElementById('stats-range').textContent='';
   document.getElementById('stats-more').style.display='none';
   document.getElementById('stats-list').innerHTML='<p class="stats-empty">불러오는 중...</p>';
-  showScreen('stats');
+  showScreen('stats'); _statsTop();
   try{
     var r=await gas('getSongStats',{});
     if(!r||!r.ok) throw new Error((r&&r.message)||'조회에 실패했습니다.');
@@ -4482,13 +4487,15 @@ async function goStats(){
 
 /** ★ 곡 제목 검색 — 띄어쓰기·대소문자 무시, 조 표시(D-, E- 등)가 붙어 있어도 찾아짐 */
 function _statsNorm(t){ return String(t||'').replace(/\s+/g,'').toLowerCase(); }
-function onStatsSearch(){ statsLimit=30; renderStats(); }
+function onStatsSearch(){ statsLimit=30; renderStats(); _statsTop(); }
+// 곡 목록을 맨 위로 (탭·검색이 고정되어 있어 목록을 내린 채로 기간을 바꿀 수 있으므로)
+function _statsTop(){ document.getElementById('stats-body').scrollTop=0; }
 
 function switchStatsPeriod(months){
   if(!statsData) return;
   statsPeriod=months; statsLimit=30;
   _statsSyncTabs(months);
-  renderStats();
+  renderStats(); _statsTop();
 }
 
 function showMoreStats(){ statsLimit+=30; renderStats(); }
