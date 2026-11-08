@@ -734,7 +734,10 @@ html, body { touch-action: manipulation; }
 /* ══════════════════════════════════════
    STATS (선곡 통계) — 신규 추가 구역
 ══════════════════════════════════════ */
-#screen-stats { overflow: hidden; padding-bottom: 0; }
+#screen-stats, #screen-quick { overflow: hidden; padding-bottom: 0; }
+#quick-list .set-list-item { cursor: pointer; }
+/* 악보 바로 보기로 연 악보에는 펜·스티커 없음 */
+#screen-viewer.quick-view #pen-toggle-btn, #screen-viewer.quick-view #sticker-btn { display: none !important; }
 .stats-top { flex-shrink: 0; padding: 14px 14px 0; display: flex; flex-direction: column; gap: 12px; }
 .stats-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 14px 20px; display: flex; flex-direction: column; gap: 12px; }
 .stats-tabs { display: flex; gap: 6px; }
@@ -901,6 +904,7 @@ html, body { touch-action: manipulation; }
     <div class="home-btns">
       <button class="btn-primary admin-only"          onclick="goCreate()">🎵 Set List 바로 만들기</button>
       <button class="btn-outline view-btn"             onclick="goViewCalendar()">👁 Set List 보기</button>
+      <button class="btn-outline view-btn"             onclick="goQuickScore()">🔍 악보 바로 보기</button>
       <button class="btn-outline admin-only"           onclick="goAdmin()" style="border-color:rgba(var(--accent-rgb),.3);font-size:13px;padding:11px 22px;">📄 악보 추가</button>
       <button class="btn-outline admin-only"           onclick="goStats()" style="border-color:rgba(var(--accent-rgb),.3);font-size:13px;padding:11px 22px;">📊 선곡 통계</button>
       <button class="btn-outline admin-only leader-only" onclick="askReissueMemberCode()" style="border-color:rgba(var(--accent-rgb),.3);font-size:13px;padding:11px 22px;">🔐 팀원 코드 새로 받기</button>
@@ -1137,6 +1141,23 @@ html, body { touch-action: manipulation; }
   </div>
 
   <!-- STATS (선곡 통계) -->
+  <!-- ★ 악보 바로 보기 — Set List 없이 곡을 검색해 그 악보 한 장만 열기 (모든 역할, 펜 없음) -->
+  <div id="screen-quick" class="screen">
+    <div class="app-header">
+      <button class="home-btn" onclick="showScreen('home')">🏠</button>
+      <div class="header-sep"></div>
+      <button class="back-btn" onclick="showScreen('home')">←</button>
+      <h2>악보 바로 보기</h2>
+    </div>
+    <div class="stats-top">
+      <input type="search" class="stats-search" id="quick-search" placeholder="🔍 곡 제목 검색" aria-label="곡 제목 검색"
+             oninput="onQuickSearch()" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
+    </div>
+    <div class="stats-body" id="quick-body">
+      <div id="quick-list" role="list"><p class="stats-empty">곡 제목을 입력하면 악보를 찾아 드립니다.</p></div>
+    </div>
+  </div>
+
   <div id="screen-stats" class="screen">
     <div class="app-header">
       <button class="home-btn" onclick="showScreen('home')">🏠</button>
@@ -1924,6 +1945,48 @@ async function doSearchSongs(){
 }
 
 // ══════════════════════════════════════════════
+//  악보 바로 보기 (모든 역할)
+// ══════════════════════════════════════════════
+var quickDeb, quickSeq=0;
+function goQuickScore(){
+  showScreen('quick');
+  var inp=document.getElementById('quick-search');
+  inp.focus(); inp.select();   // 지난 검색어는 남겨 두고, 바로 새로 입력할 수 있게
+}
+function onQuickSearch(){
+  clearTimeout(quickDeb);
+  var q=document.getElementById('quick-search').value.trim();
+  if(!q){ quickSeq++; document.getElementById('quick-list').innerHTML='<p class="stats-empty">곡 제목을 입력하면 악보를 찾아 드립니다.</p>'; return; }
+  quickDeb=setTimeout(doQuickSearch,420);
+}
+async function doQuickSearch(){
+  var q=document.getElementById('quick-search').value.trim(); if(!q) return;
+  var list=document.getElementById('quick-list'), seq=++quickSeq;
+  list.innerHTML='<p class="stats-empty">검색 중...</p>';
+  try{
+    var r=await gas('searchSongs',q);
+    if(seq!==quickSeq) return;   // 더 새로운 검색이 있으면 무시
+    if(!r.ok) throw new Error(r.message||'검색하지 못했습니다.');
+    document.getElementById('quick-body').scrollTop=0;
+    if(!r.data.length){ list.innerHTML='<p class="stats-empty">"'+escHtml(q)+'" 악보를 찾지 못했습니다.</p>'; return; }
+    list.innerHTML='';
+    r.data.forEach(function(song){
+      var item=document.createElement('div'); item.className='set-list-item'; item.setAttribute('role','listitem');
+      item.innerHTML='<div class="set-info"><div class="set-title">'+escHtml(song.song_title)+'</div><div class="set-meta">'+escHtml(song.file_name||'')+'</div></div>';
+      var vBtn=document.createElement('button'); vBtn.className='view-btn-sm'; vBtn.textContent='▶ 보기';
+      vBtn.setAttribute('aria-label',song.song_title+' 악보 보기');
+      item.appendChild(vBtn);
+      item.addEventListener('click',function(){ openQuickScore(song); });   // 줄 어디를 눌러도 열림
+      list.appendChild(item);
+    });
+  }catch(e){ if(seq===quickSeq) list.innerHTML='<p class="stats-empty">'+escHtml(e.message)+'</p>'; }
+}
+function openQuickScore(song){
+  openViewer([song], song.song_title, 'quick');
+  slpSelectSong(0);   // Set List 목록 없이 바로 악보
+}
+
+// ══════════════════════════════════════════════
 //  SET LIST EDIT
 // ══════════════════════════════════════════════
 function addSong(song){ if(S.setlistSongs.length>=10){toast('최대 10곡까지 추가할 수 있습니다.');return;} if(S.setlistSongs.find(function(s){return s.file_name===song.file_name;})){toast('이미 추가된 곡입니다.');return;} S.setlistSongs.push(Object.assign({},song)); renderChips(); toast('"'+song.song_title+'" 추가됨'); }
@@ -1967,6 +2030,13 @@ function openViewer(songs, groupTitle, fromScreen){
   S.preloadCache = {}; S.preloadDone = 0; S.preloadTotal = songs.length;
   S.imgIsSquare = false;
   S.viewerGroupTitle = groupTitle || '';
+  // ★ 악보 바로 보기에서 열면 펜·스티커를 숨기고 필기를 불러오거나 저장하지 않음
+  S.quickView = (fromScreen === 'quick');
+  document.getElementById('screen-viewer').classList.toggle('quick-view', S.quickView);
+  if(S.quickView){
+    if(penState.active) togglePenMode();
+    if(penState.isStickerMode) toggleStickerMode();
+  }
 
   updateFullviewUI();
   showScreen('viewer');
@@ -3652,6 +3722,7 @@ function redrawStrokes(){
 }
 
 function annotKey(){
+  if(S.quickView) return null;   // 악보 바로 보기는 필기 없음
   var song = S.viewerSongs[S.viewerIdx];
   if(!song) return null;
   // ★ 5) 곡별 완전 분리: file_name(고유) + 곡 순서 + 페이지

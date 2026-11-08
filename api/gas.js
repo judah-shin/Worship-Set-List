@@ -120,10 +120,10 @@ async function resolveSession(token) {
 //   TEAM_ADMIN : 팀 관리자만
 //   OPERATOR : 운영자만
 const PUBLIC     = new Set(['verifyAdminPassword', 'enterCode']);
-const MEMBER     = new Set(['whoami', 'getSetListsByDate', 'getDatesWithSetList', 'fetchFileAsBase64']);
+const MEMBER     = new Set(['whoami', 'getSetListsByDate', 'getDatesWithSetList', 'fetchFileAsBase64', 'searchSongs']);   // searchSongs: 악보 바로 보기(팀원 포함)
 // 관리자와 부관리자 모두
 const EDITOR     = new Set([
-  'saveSetList', 'updateSetList', 'deleteSetList', 'searchSongs',
+  'saveSetList', 'updateSetList', 'deleteSetList',
   'adminAddSong', 'adminUpdateSong', 'getAllScores', 'getSongStats',
 ]);
 // 관리자만 (악보 삭제, 코드 관리)
