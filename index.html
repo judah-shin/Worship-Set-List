@@ -191,6 +191,11 @@ html, body { touch-action: manipulation; }
 .btn-outline { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 15px 22px; background: rgba(var(--accent-rgb),.1); color: var(--gold-light); font-family: 'Noto Sans KR', sans-serif; font-weight: 500; font-size: 15px; border: 1.5px solid rgba(var(--accent-rgb),.45); border-radius: var(--radius); cursor: pointer; transition: var(--trans); }
 .btn-outline:hover { background: rgba(var(--accent-rgb),.18); border-color: var(--gold); }
 .btn-outline.view-btn { border-color: rgba(var(--accent-rgb),.65); background: rgba(var(--accent-rgb),.13); }
+/* 홈 두 칸 줄: 아이콘 위·글자 아래 타일 (컴퓨터처럼 폭이 좁아도 글자가 넘치지 않게) */
+.home-row { display: flex; gap: 13px; }
+.home-row > .home-tile { flex: 1 1 0; min-width: 0; }
+.home-tile { flex-direction: column; gap: 4px; padding: 12px 8px; font-size: 14px; border-color: rgba(var(--accent-rgb),.3); }
+.home-tile .tile-ico { font-size: 20px; line-height: 1; }
 
 .role-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-family: 'Lato', sans-serif; padding: 3px 12px; border-radius: 20px; margin-bottom: 16px; animation: fadeUp .9s .3s ease both; }
 .role-badge.admin { background: rgba(var(--accent-rgb),.18); color: var(--gold-light); border: 1px solid rgba(var(--accent-rgb),.3); }
@@ -647,6 +652,9 @@ html, body { touch-action: manipulation; }
 ══════════════════════════════════════ */
 #confirm-dialog { position: fixed; inset: 0; z-index: 9997; background: rgba(var(--deep-rgb),.84); backdrop-filter: blur(8px); display: none; align-items: center; justify-content: center; }
 #confirm-dialog.show { display: flex; }
+#settings-dialog { position: fixed; inset: 0; z-index: 9996; background: rgba(var(--deep-rgb),.84); backdrop-filter: blur(8px); display: none; align-items: center; justify-content: center; }
+#settings-dialog.show { display: flex; }
+#settings-dialog .settings-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
 .confirm-box { background: var(--panel); border: 1px solid rgba(var(--accent-rgb),.32); border-radius: var(--radius); padding: 24px 22px; max-width: 420px; width: 88%; text-align: center; }
 .confirm-box h3 { font-family: 'Cinzel', serif; font-size: 14px; color: var(--gold-light); margin-bottom: 8px; }
 .confirm-box p  { font-size: 13px; color: var(--gold-dim); line-height: 1.6; margin-bottom: 18px; }
@@ -904,11 +912,15 @@ html, body { touch-action: manipulation; }
     <div class="home-btns">
       <button class="btn-primary admin-only"          onclick="goCreate()">🎵 Set List 바로 만들기</button>
       <button class="btn-outline view-btn"             onclick="goViewCalendar()">👁 Set List 보기</button>
-      <button class="btn-outline view-btn"             onclick="goQuickScore()">🔍 악보 바로 보기</button>
-      <button class="btn-outline admin-only"           onclick="goAdmin()" style="border-color:rgba(var(--accent-rgb),.3);font-size:13px;padding:11px 22px;">📄 악보 추가</button>
-      <button class="btn-outline admin-only"           onclick="goStats()" style="border-color:rgba(var(--accent-rgb),.3);font-size:13px;padding:11px 22px;">📊 선곡 통계</button>
-      <button class="btn-outline admin-only leader-only" onclick="askReissueMemberCode()" style="border-color:rgba(var(--accent-rgb),.3);font-size:13px;padding:11px 22px;">🔐 팀원 코드 새로 받기</button>
-      <button class="btn-outline admin-only leader-only" id="sub-admin-btn" onclick="manageSubAdmin()" style="border-color:rgba(var(--accent-rgb),.3);font-size:13px;padding:11px 22px;">👔 부관리자 코드 만들기</button>
+      <!-- ★ 두 칸 줄 — 역할 때문에 한 칸이 숨겨지면 남은 칸이 줄을 다 채움 -->
+      <div class="home-row">
+        <button class="btn-outline home-tile" onclick="goQuickScore()"><span class="tile-ico" aria-hidden="true">🔍</span>악보 바로 보기</button>
+        <button class="btn-outline home-tile admin-only" onclick="goAdmin()"><span class="tile-ico" aria-hidden="true">📄</span>악보 추가</button>
+      </div>
+      <div class="home-row admin-only">
+        <button class="btn-outline home-tile admin-only" onclick="goStats()"><span class="tile-ico" aria-hidden="true">📊</span>선곡 통계</button>
+        <button class="btn-outline home-tile admin-only leader-only" onclick="openTeamSettings()"><span class="tile-ico" aria-hidden="true">⚙️</span>팀 설정</button>
+      </div>
     </div>
     <button type="button" class="install-btn" onclick="installApp()">📲 앱으로 설치하기</button>
     <span class="home-logout" onclick="logout()">로그아웃</span>
@@ -1270,6 +1282,19 @@ html, body { touch-action: manipulation; }
   </div>
 </div>
 
+<!-- ★ 팀 설정 창 — 코드 관련 메뉴 모음 (팀 관리자만) -->
+<div id="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-dialog-title">
+  <div class="confirm-box">
+    <h3 id="settings-dialog-title">팀 설정</h3>
+    <p>찬양팀 입장 코드를 관리합니다.</p>
+    <div class="settings-list">
+      <button class="btn-outline" onclick="closeTeamSettings();askReissueMemberCode()">🔐 팀원 코드 새로 받기</button>
+      <button class="btn-outline" id="sub-admin-btn" onclick="closeTeamSettings();manageSubAdmin()">👔 부관리자 코드 만들기</button>
+    </div>
+    <button class="confirm-btn-cancel" onclick="closeTeamSettings()">닫기</button>
+  </div>
+</div>
+
 <!-- ★ 코드 안내 창 — 코드는 이 창에서 한 번만 보여 줌 -->
 <div id="code-dialog" role="dialog" aria-modal="true" aria-labelledby="code-dialog-title">
   <div class="code-box">
@@ -1568,6 +1593,8 @@ function logout(){
 }
 
 // ── 팀 관리자: 팀원 코드 새로 받기 ──
+function openTeamSettings(){ document.getElementById('settings-dialog').classList.add('show'); }
+function closeTeamSettings(){ document.getElementById('settings-dialog').classList.remove('show'); }
 function askReissueMemberCode(){
   if(currentRole!=='admin'){ toast('관리자만 사용할 수 있습니다.'); return; }
   document.getElementById('confirm-dialog').querySelector('h3').textContent='팀원 코드 새로 받기';
